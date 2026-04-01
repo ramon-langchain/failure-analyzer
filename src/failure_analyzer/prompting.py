@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shlex
+import subprocess
 from collections.abc import Mapping
 from datetime import datetime
 from importlib.resources import files
@@ -52,7 +53,7 @@ _FILE_LINE_PATTERN = re.compile(
     r"(?P<tick>`)?(?P<path>(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+|/[A-Za-z0-9._/\-]+(?:\.[A-Za-z0-9._-]+)):(?P<line>\d+)(?:-(?P<end_line>\d+))?(?P=tick)?"
 )
 _ARTIFACT_REF_PATTERN = re.compile(
-    r"(?P<tick>`)?artifact:(?P<path>[A-Za-z0-9._/\-]+)(?P=tick)?"
+    r"(?P<tick>`)?artifact:(?P<path>[A-Za-z0-9._/\-]+)(?::(?P<line>\d+)(?:-(?P<end_line>\d+))?)?(?P=tick)?"
 )
 
 
@@ -237,8 +238,50 @@ def resolve_repo_relative_path(raw_path: str, result: TestRunResult) -> str | No
             relative = path.relative_to(workspace_root)
         except ValueError:
             continue
+        if _is_not_git_tracked(relative.as_posix(), workspace_root):
+            continue
         return relative.as_posix()
     return None
+
+
+def _is_not_git_tracked(repo_relative_path: str, workspace_root: Path) -> bool:
+    """Return True when git does not consider a workspace-relative path tracked."""
+    git_dir = workspace_root / ".git"
+    if not git_dir.exists():
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", repo_relative_path],
+            cwd=workspace_root,
+            check=False,
+            capture_output=True,
+            text=False,
+        )
+    except OSError:
+        return False
+    return result.returncode != 0
+
+
+def read_artifact_excerpt(
+    artifact_dir: Path,
+    artifact_path: str,
+    *,
+    start_line: int,
+    end_line: int,
+) -> str | None:
+    """Read a line-ranged excerpt from an uploaded artifact file."""
+    path = (artifact_dir / artifact_path).resolve()
+    try:
+        path.relative_to(artifact_dir.resolve())
+    except ValueError:
+        return None
+    if not path.exists() or not path.is_file():
+        return None
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if start_line < 1 or end_line < start_line or end_line > len(lines):
+        return None
+    return "\n".join(lines[start_line - 1 : end_line])
 
 
 def _linkify_file_references(text: str, result: TestRunResult) -> str:
@@ -250,6 +293,8 @@ def _linkify_file_references(text: str, result: TestRunResult) -> str:
     def replace(match: re.Match[str]) -> str:
         start = match.start()
         if start >= 2 and text[start - 2 : start] == "](":
+            return match.group(0)
+        if start >= 9 and text[start - 9 : start] == "artifact:":
             return match.group(0)
 
         raw_path = match.group("path")
@@ -282,16 +327,47 @@ def linkify_report_markdown(report: str, result: TestRunResult) -> str:
     return "".join(linked_parts)
 
 
-def linkify_artifact_references(markdown: str, artifact_url: str | None) -> str:
+def linkify_artifact_references(
+    markdown: str,
+    artifact_url: str | None,
+    *,
+    artifact_dir: Path | None = None,
+) -> str:
     """Convert plain artifact:path references into artifact links."""
     if not markdown.strip() or not artifact_url:
         return markdown
+
+    excerpts: list[tuple[str, str]] = []
+    seen_excerpt_keys: set[str] = set()
 
     def replace(match: re.Match[str]) -> str:
         raw_path = match.group("path")
         stripped_path = raw_path.rstrip(".,;:!?")
         suffix = raw_path[len(stripped_path) :]
+        line = match.group("line")
+        end_line = match.group("end_line") or line
         label = f"artifact:{stripped_path}"
+        if line:
+            label = f"{label}:{line}"
+            if end_line and end_line != line:
+                label = f"{label}-{end_line}"
+            if artifact_dir is not None:
+                excerpt = read_artifact_excerpt(
+                    artifact_dir,
+                    stripped_path,
+                    start_line=int(line),
+                    end_line=int(end_line or line),
+                )
+                if excerpt is not None:
+                    key = f"{stripped_path}:{line}-{end_line}"
+                    if key not in seen_excerpt_keys:
+                        seen_excerpt_keys.add(key)
+                        excerpts.append(
+                            (
+                                label,
+                                excerpt,
+                            )
+                        )
         return f"[{label}]({artifact_url}){suffix}"
 
     parts = _CODE_FENCE_SPLIT_PATTERN.split(markdown)
@@ -299,7 +375,22 @@ def linkify_artifact_references(markdown: str, artifact_url: str | None) -> str:
         part if part.startswith("```") else _ARTIFACT_REF_PATTERN.sub(replace, part)
         for part in parts
     ]
-    return "".join(linked_parts)
+    linked = "".join(linked_parts)
+    if not excerpts:
+        return linked
+
+    excerpt_blocks = "\n\n".join(
+        (
+            "<details>\n"
+            f"<summary>`{label}` excerpt</summary>\n\n"
+            "```text\n"
+            f"{excerpt}\n"
+            "```\n"
+            "</details>"
+        )
+        for label, excerpt in excerpts
+    )
+    return f"{linked.rstrip()}\n\n## Artifact Excerpts\n\n{excerpt_blocks}\n"
 
 
 def build_missing_credentials_summary(secret_names: tuple[str, ...]) -> str:

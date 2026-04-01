@@ -14,7 +14,7 @@ SOURCE_REF_PATTERN = re.compile(
     r"(?P<tick>`)?(?P<path>(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+|/[A-Za-z0-9._/\-]+(?:\.[A-Za-z0-9._-]+)):(?P<line>\d+)(?:-(?P<end_line>\d+))?(?P=tick)?"
 )
 ARTIFACT_REF_PATTERN = re.compile(
-    r"(?P<tick>`)?artifact:(?P<path>[A-Za-z0-9._/\-]+)(?P=tick)?"
+    r"(?P<tick>`)?artifact:(?P<path>[A-Za-z0-9._/\-]+)(?::(?P<line>\d+)(?:-(?P<end_line>\d+))?)?(?P=tick)?"
 )
 EXCERPT_FENCE_PATTERN = re.compile(
     r"```(?P<language>[A-Za-z0-9_+-]+)\s+(?P<path>[^\s`#]+)#(?:L)?(?P<start>\d+)(?:-L?(?P<end>\d+))?\n(?P<body>.*?)\n```",
@@ -56,6 +56,8 @@ def validate_report_markdown(
     issues: list[ValidationIssue] = []
 
     for match in SOURCE_REF_PATTERN.finditer(markdown):
+        if match.start() >= 9 and markdown[match.start() - 9 : match.start()] == "artifact:":
+            continue
         reference = match.group(0)
         resolved = resolve_repo_relative_path(match.group("path"), result)
         if resolved is None:
@@ -122,6 +124,21 @@ def validate_report_markdown(
                     reason=f"artifact does not exist: {stripped_path}",
                 )
             )
+            continue
+        line = match.group("line")
+        end_line = match.group("end_line") or line
+        if line:
+            lines = artifact_path.read_text(encoding="utf-8").splitlines()
+            start = int(line)
+            end = int(end_line or line)
+            if start < 1 or end < start or end > len(lines):
+                issues.append(
+                    ValidationIssue(
+                        kind="artifact_reference",
+                        reference=reference,
+                        reason=f"line range {start}-{end} is outside artifact length {len(lines)}",
+                    )
+                )
 
     for match in EXCERPT_FENCE_PATTERN.finditer(markdown):
         language = match.group("language")

@@ -55,6 +55,7 @@ class AnalysisRequest:
     started_at: datetime | None = None
     finished_at: datetime | None = None
     timed_output_path: Path | None = None
+    timed_output_artifact_ref: str | None = None
     max_output_bytes: int = 120_000
     enable_shell_analysis: bool = True
 

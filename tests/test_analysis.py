@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import io
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -73,6 +74,7 @@ def test_system_prompt_is_loaded_from_resource_file() -> None:
     assert "gh" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "GitHub-flavored Markdown" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "```go path/to/file.go#L55-L70" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "artifact:path/inside/output-dir.ext:12-18" in analysis.ANALYSIS_SYSTEM_PROMPT
 
 
 def test_pr_comment_prompt_is_loaded_from_resource_file() -> None:
@@ -154,20 +156,55 @@ def test_linkify_report_markdown_preserves_subproject_prefix_for_repo_relative_p
     assert "[examples/go-ci-demo/pricing/pricing.go:45](https://github.com/example/repo/blob/abc123/examples/go-ci-demo/pricing/pricing.go#L45)" in linked
 
 
+def test_linkify_report_markdown_does_not_link_untracked_files(tmp_path: Path) -> None:
+    from failure_analyzer.prompting import linkify_report_markdown
+
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True)
+    tracked_file = workspace / "tracked.go"
+    tracked_file.write_text("package main\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.go"], cwd=workspace, check=True, capture_output=True)
+    runtime_dir = workspace / "examples" / "go-ci-demo" / ".failure-analyzer"
+    runtime_dir.mkdir(parents=True)
+    (runtime_dir / "timed-output.log").write_text("line1\nline2\n", encoding="utf-8")
+
+    result = make_result(
+        cwd=workspace / "examples" / "go-ci-demo",
+        environment={
+            "FAILURE_ANALYZER_FILES_BASE": "https://github.com/example/repo/blob/abc123/",
+            "GITHUB_WORKSPACE": str(workspace),
+        },
+    )
+    report = "See .failure-analyzer/timed-output.log:2-9.\n"
+
+    linked = linkify_report_markdown(report, result)
+
+    assert "[.failure-analyzer/timed-output.log:2-9]" not in linked
+    assert ".failure-analyzer/timed-output.log:2-9" in linked
+
+
 def test_linkify_artifact_references_rewrites_plain_artifact_markers() -> None:
     from failure_analyzer.prompting import linkify_artifact_references
 
     markdown = (
-        "See artifact:logs/failure.log and `artifact:notes/repro.md`.\n"
+        "See artifact:logs/failure.log and `artifact:notes/repro.md` and artifact:timed-output.log:2-3.\n"
         "```text\nartifact:logs/raw.log\n```\n"
     )
+    artifact_dir = Path("/tmp/failure-analyzer/artifacts")
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "timed-output.log").write_text("l1\nl2\nl3\nl4\n", encoding="utf-8")
     linked = linkify_artifact_references(
         markdown,
         "https://github.com/example/repo/actions/runs/123/artifacts/999",
+        artifact_dir=artifact_dir,
     )
 
     assert "[artifact:logs/failure.log](https://github.com/example/repo/actions/runs/123/artifacts/999)" in linked
     assert "[artifact:notes/repro.md](https://github.com/example/repo/actions/runs/123/artifacts/999)" in linked
+    assert "[artifact:timed-output.log:2-3](https://github.com/example/repo/actions/runs/123/artifacts/999)" in linked
+    assert "## Artifact Excerpts" in linked
+    assert "l2\nl3" in linked
     assert "```text\nartifact:logs/raw.log\n```" in linked
 
 
@@ -186,7 +223,7 @@ def test_validate_report_markdown_accepts_valid_source_and_artifact_refs(tmp_pat
         environment={"GITHUB_WORKSPACE": str(workspace)},
     )
     markdown = (
-        "See pkg/pricing.go:3-5 and artifact:logs/failure.log.\n\n"
+        "See pkg/pricing.go:3-5 and artifact:logs/failure.log and artifact:logs/failure.log:1-1.\n\n"
         "```go pkg/pricing.go#L3-L5\n"
         "func Tax() int {\n\treturn 91\n}\n"
         "```\n"
@@ -208,7 +245,7 @@ def test_validate_report_markdown_rejects_bad_excerpt_and_missing_artifact(tmp_p
         environment={"GITHUB_WORKSPACE": str(workspace)},
     )
     markdown = (
-        "See pkg/pricing.go:99 and artifact:logs/missing.log.\n\n"
+        "See pkg/pricing.go:99 and artifact:logs/missing.log and artifact:logs/missing.log:99-100.\n\n"
         "```go pkg/pricing.go#L3-L5\n"
         "func Tax() int {\n\treturn 90\n}\n"
         "```\n"

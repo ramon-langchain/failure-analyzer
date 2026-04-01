@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 from textwrap import dedent
@@ -110,6 +111,7 @@ def build_analysis_request(
     repo_root: Path,
     max_output_bytes: int,
     enable_shell_analysis: bool,
+    timed_output_artifact_ref: str | None = None,
 ) -> AnalysisRequest:
     """Transform a failed test run into an analysis request."""
     combined_output, _ = truncate_text(result.combined_output, max_bytes=max_output_bytes)
@@ -124,6 +126,7 @@ def build_analysis_request(
         started_at=result.started_at,
         finished_at=result.finished_at,
         timed_output_path=result.timed_output_path,
+        timed_output_artifact_ref=timed_output_artifact_ref,
         max_output_bytes=max_output_bytes,
         enable_shell_analysis=enable_shell_analysis,
     )
@@ -146,6 +149,11 @@ def render_user_prompt(request: AnalysisRequest) -> tuple[str, bool]:
     )
     duration_text = f"{duration_ms} ms" if duration_ms is not None else "<unknown>"
     timed_output_path = request.timed_output_path or Path("<not captured>")
+    timed_output_artifact_line = (
+        f"- Timed output artifact reference: `{request.timed_output_artifact_ref}:<start>-<end>`\n"
+        if request.timed_output_artifact_ref
+        else ""
+    )
     environment_block = format_environment_block(request.environment)
     prompt = dedent(
         f"""\
@@ -160,6 +168,7 @@ def render_user_prompt(request: AnalysisRequest) -> tuple[str, bool]:
         - Shell-based diagnostics: {shell_mode}
         - Full timed output file: `{timed_output_path}`
         - Timed output format: {STREAM_FORMAT_LEGEND}
+        {timed_output_artifact_line}
 
         The exit code is the ground truth. Explain why the test failed. You may inspect files outside the working directory if they are relevant and accessible on the host.
 
@@ -410,7 +419,15 @@ async def analyze_failure(
         repo_root=repo_root,
         max_output_bytes=max_output_bytes,
         enable_shell_analysis=enable_shell_analysis,
+        timed_output_artifact_ref=(
+            "artifact:timed-output.log"
+            if result.timed_output_path is not None
+            else None
+        ),
     )
+    if result.timed_output_path is not None and result.timed_output_path.exists():
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(result.timed_output_path, artifact_dir / "timed-output.log")
     user_prompt, used_truncation = render_report_generation_prompt(request, report_path)
 
     backend: Any

@@ -58,12 +58,14 @@ Rules:
 - Use the timed output log when ordering or interleaving of stdout and stderr matters.
 - If `FAILURE_ANALYZER_OUTPUT_DIR` is present, you may create or copy helpful artifacts there. Save any artifact under that directory and refer to it in the report using plain `artifact:path/inside/output-dir.ext` references.
 - Use artifacts for things like filtered logs, diffs, reproducer notes, or any file that would help someone understand the failure.
+- Runtime-generated files such as the timed output log are artifacts, not source files.
+- If you cite a line range from an artifact, use `artifact:path/inside/output-dir.ext:12-18`.
 - If you cite source locations, do not write full URLs and do not construct Markdown links yourself.
 - Always cite source locations in plain repo-relative form only, like `path/to/file.ext:123` or `path/to/file.ext:123-145`.
 - If you include a code excerpt that should be validated against the repository, use a fenced block whose opening line includes the source location, for example: ```go path/to/file.go#L55-L70
 - For those validated excerpt fences, the body must exactly match the referenced file lines.
 - Prefer repo-relative paths and include line numbers whenever you cite a specific implementation or assertion.
-- If you cite an uploaded artifact, do not write a URL. Use only `artifact:relative/path.ext`.
+- If you cite an uploaded artifact, do not write a URL. Use only `artifact:relative/path.ext` or `artifact:relative/path.ext:12-18`.
 - If `FAILURE_ANALYZER_FILES_BASE` is absent, do not invent file URLs.
 - If `FAILURE_ANALYZER_CAN_READ_ACTIONS=true`, you may use `gh` to inspect recent workflow runs from other branches in this repository when that would help determine whether a failure looks flaky.
 - If `FAILURE_ANALYZER_CAN_READ_ACTIONS` is absent or not `true`, do not attempt to use `gh` for Actions history.

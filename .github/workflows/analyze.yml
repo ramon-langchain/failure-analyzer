@@ -185,9 +185,10 @@ jobs:
           REPORT_FILE: ${{ steps.analyze.outputs.failure_analyzer_report_path }}
           PR_COMMENT_FILE: ${{ steps.analyze.outputs.failure_analyzer_pr_comment_path }}
           ARTIFACT_URL: ${{ steps.upload_artifacts.outputs.artifact-url }}
+          ARTIFACT_DIR: ${{ steps.analyze.outputs.failure_analyzer_artifact_dir }}
           PYTHONPATH: ${{ github.workspace }}/src
         run: |
-          python - "$REPORT_FILE" "$PR_COMMENT_FILE" "$ARTIFACT_URL" <<'PY'
+          python - "$REPORT_FILE" "$PR_COMMENT_FILE" "$ARTIFACT_URL" "$ARTIFACT_DIR" <<'PY'
           import pathlib
           import sys
           from failure_analyzer.github_actions import append_step_summary
@@ -196,14 +197,15 @@ jobs:
           report_path = pathlib.Path(sys.argv[1])
           pr_comment_path = pathlib.Path(sys.argv[2]) if sys.argv[2] else None
           artifact_url = sys.argv[3] or None
+          artifact_dir = pathlib.Path(sys.argv[4]) if sys.argv[4] else None
 
           report = report_path.read_text(encoding="utf-8")
-          report = linkify_artifact_references(report, artifact_url)
+          report = linkify_artifact_references(report, artifact_url, artifact_dir=artifact_dir)
           report_path.write_text(report, encoding="utf-8")
 
           if pr_comment_path and pr_comment_path.exists():
               comment = pr_comment_path.read_text(encoding="utf-8")
-              comment = linkify_artifact_references(comment, artifact_url)
+              comment = linkify_artifact_references(comment, artifact_url, artifact_dir=artifact_dir)
               pr_comment_path.write_text(comment, encoding="utf-8")
 
           append_step_summary(report)
