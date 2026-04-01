@@ -1,19 +1,24 @@
 # test-analyzer
 
+Warning: experimental. Expect breaking changes, rough edges, and prompt/model behavior changes.
+
 `test-analyzer` wraps a test command, streams its output, and invokes a LangChain Deep Agent to explain failures when the command exits non-zero.
 
 If a `.env` file is present in the current repository, it is loaded automatically before model initialization.
 
 ## Usage
 
+Recommended one-off usage:
+
 ```bash
-uvx --from . test-analyzer go test ./...
+uvx --from git+ssh://git@github.com/ramon-langchain/failure-analyzer.git test-analyzer go test ./...
 ```
 
-Or after installing the project dependencies locally:
+Recommended persistent install:
 
 ```bash
-uv run test-analyzer --model openai:gpt-5.4-mini go test ./...
+uv tool install --upgrade --from git+ssh://git@github.com/ramon-langchain/failure-analyzer.git test-analyzer
+test-analyzer go test ./...
 ```
 
 The command preserves the wrapped test process exit code. On failures, it prints a Markdown report to stderr and can optionally save the same report with `--report-file`.
@@ -42,13 +47,3 @@ That lets a workflow upload the report with `actions/upload-artifact` in a follo
     name: test-analyzer-report
     path: ${{ steps.test_analyzer.outputs.test_analyzer_report_path }}
 ```
-
-## Standalone binaries
-
-The repository includes a GitHub Actions workflow at [.github/workflows/build-binaries.yml](/Users/ramon/langchain/failure-analyzer/.github/workflows/build-binaries.yml) that builds standalone executables with PyInstaller for:
-
-- Linux `amd64`
-- Linux `arm64`
-- Darwin `arm64`
-
-It runs on tags matching `v*` and on manual dispatch, then uploads one `.tar.gz` artifact per target.
