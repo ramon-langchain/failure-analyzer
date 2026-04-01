@@ -37,6 +37,7 @@ jobs:
       command: go test -json -race -cover -timeout 10s ./...
       go-version: "1.24.13"
       langsmith-project: my-ci-failure-analyzer
+      thinking-effort: medium
       allow-rerun: false
       instructions: |
         Focus on flaky-test evidence first.
@@ -96,10 +97,13 @@ Optional inputs:
 - `model`
 - `instructions`
 - `langsmith-project`
+- `thinking-effort`
 - `allow-rerun`
 - `flags`
 
 `allow-rerun` defaults to `false`. When enabled, the agent may rerun the wrapped test command or a narrowed variant if that will materially improve the diagnosis, but it is instructed to keep those reruns short and to aim to finish within about two minutes total.
+
+`thinking-effort` defaults to `medium` and currently applies to OpenAI models only.
 
 The reusable workflow writes the full Markdown analysis to the GitHub Actions job summary automatically and preserves the wrapped command's exit code.
 
@@ -160,6 +164,12 @@ If you want the analyzer to be allowed to rerun tests briefly during diagnosis:
 
 ```bash
 failure-analyzer --allow-rerun go test -json -race -cover -timeout 10s ./...
+```
+
+If you want to override the default OpenAI thinking effort:
+
+```bash
+failure-analyzer --thinking-effort high go test -json -race -cover -timeout 10s ./...
 ```
 
 The command preserves the wrapped test process exit code. On failures, it prints a Markdown report to stderr and can optionally save the same report with `--report-file`.

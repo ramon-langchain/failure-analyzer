@@ -59,6 +59,7 @@ class AnalysisRequest:
     max_output_bytes: int = 120_000
     enable_shell_analysis: bool = True
     allow_rerun: bool = False
+    thinking_effort: str = "medium"
 
 
 @dataclass(slots=True)

@@ -2,6 +2,25 @@ name: Example Go CI Demo
 
 on:
   workflow_dispatch:
+    inputs:
+      model:
+        description: OpenAI model to use for the failure analysis run.
+        required: true
+        default: gpt-5.4-mini
+        type: choice
+        options:
+          - gpt-5.4
+          - gpt-5.4-mini
+          - gpt-5.4-nano
+      thinking-effort:
+        description: OpenAI thinking effort for the demo run.
+        required: true
+        default: medium
+        type: choice
+        options:
+          - low
+          - medium
+          - high
 
 permissions:
   contents: read
@@ -15,3 +34,5 @@ jobs:
       flags: nopreserveexitcode
       working-directory: examples/go-ci-demo
       go-version: "1.24.13"
+      model: openai:${{ inputs.model }}
+      thinking-effort: ${{ inputs.thinking-effort }}

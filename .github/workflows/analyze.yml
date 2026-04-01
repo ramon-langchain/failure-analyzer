@@ -27,6 +27,11 @@ on:
         required: false
         default: ""
         type: string
+      thinking-effort:
+        description: Optional OpenAI thinking effort override passed to failure-analyzer.
+        required: false
+        default: "medium"
+        type: string
       instructions:
         description: Optional custom instructions appended as higher-priority system prompt overrides.
         required: false
@@ -282,6 +287,7 @@ jobs:
           FAILURE_ANALYZER_DEFER_SUMMARY: "true"
           FAILURE_ANALYZER_FLAGS: ${{ inputs.flags }}
           FAILURE_ANALYZER_MODEL: ${{ inputs.model }}
+          FAILURE_ANALYZER_THINKING_EFFORT: ${{ inputs.thinking-effort }}
           FAILURE_ANALYZER_CUSTOM_INSTRUCTIONS: ${{ inputs.instructions }}
           FAILURE_ANALYZER_CAN_READ_ACTIONS: ${{ steps.gh_access.outputs.can_read_actions }}
           FAILURE_ANALYZER_CAN_COMMENT_PR: ${{ steps.pr_comment_access.outputs.can_comment_pr }}
@@ -304,6 +310,9 @@ jobs:
           args=()
           if [ -n "$FAILURE_ANALYZER_MODEL" ]; then
             args+=(--model "$FAILURE_ANALYZER_MODEL")
+          fi
+          if [ -n "$FAILURE_ANALYZER_THINKING_EFFORT" ]; then
+            args+=(--thinking-effort "$FAILURE_ANALYZER_THINKING_EFFORT")
           fi
           if [ -n "$FAILURE_ANALYZER_CUSTOM_INSTRUCTIONS" ]; then
             args+=(--instructions "$FAILURE_ANALYZER_CUSTOM_INSTRUCTIONS")

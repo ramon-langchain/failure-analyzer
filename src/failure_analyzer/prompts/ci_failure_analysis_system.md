@@ -57,6 +57,8 @@ Rules:
 - For those validated log fences, the body must exactly match the referenced artifact lines.
 - If you cite source locations, do not write full URLs and do not construct Markdown links yourself.
 - Always cite source locations in plain repo-relative form only, like `path/to/file.ext:123` or `path/to/file.ext:123-145`.
+- When you mention a specific symbol such as a test, function, method, type, or constant, include its defining location inline. Preferred format: `` `SymbolName` (`path/to/file.ext:123`) ``.
+- Prefer linking the most relevant symbol names in the failure, for example the failing test function, the implementation function it exercises, and any helper with load-bearing behavior.
 - If you include a code excerpt that should be validated against the repository, use a fenced block whose opening line includes the source location, for example: ```go path/to/file.go#L55-L70
 - For those validated excerpt fences, the body must exactly match the referenced file lines.
 - Prefer repo-relative paths and include line numbers whenever you cite a specific implementation or assertion.

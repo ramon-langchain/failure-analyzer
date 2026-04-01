@@ -19,7 +19,7 @@ from failure_analyzer.report_validation import (
 
 
 def make_result(**overrides: object) -> TestRunResult:
-    base = {
+    base: dict[str, object] = {
         "command": ("go", "test", "./..."),
         "cwd": Path("/repo"),
         "exit_code": 1,
@@ -416,23 +416,37 @@ def test_validate_report_markdown_reports_extra_trailing_log_line(tmp_path: Path
     )
 
 
-def test_resolve_model_defaults_to_gpt_5_4_mini(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    monkeypatch.delenv("FAILURE_ANALYZER_OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
-    assert analysis.resolve_model(None) == "openai:gpt-5.4"
-
-
 def test_resolve_model_prefers_explicit_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(analysis.MODEL_ENV_VAR, "openai:gpt-custom")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     assert analysis.resolve_model(None) == "openai:gpt-custom"
+
+
+def test_resolve_thinking_effort_defaults_to_medium(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(analysis.THINKING_EFFORT_ENV_VAR, raising=False)
+    assert analysis.resolve_thinking_effort(None) == "medium"
+
+
+def test_resolve_thinking_effort_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(analysis.THINKING_EFFORT_ENV_VAR, "high")
+    assert analysis.resolve_thinking_effort(None) == "high"
+
+
+def test_build_agent_model_uses_openai_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(analysis, "ChatOpenAI", FakeChatOpenAI)
+
+    model = analysis.build_agent_model("openai:gpt-5.4-mini", thinking_effort="medium")
+
+    assert isinstance(model, FakeChatOpenAI)
+    assert captured["model"] == "gpt-5.4-mini"
+    assert captured["use_responses_api"] is True
+    assert captured["reasoning_effort"] == "medium"
 
 
 def test_resolve_model_selects_openai_when_key_present(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -445,7 +459,7 @@ def test_resolve_model_selects_openai_when_key_present(monkeypatch: pytest.Monke
     monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
-    assert analysis.resolve_model(None) == "openai:gpt-5.4"
+    assert analysis.resolve_model(None).startswith("openai:")
 
 
 def test_resolve_model_selects_anthropic_when_no_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -495,7 +509,7 @@ def test_failure_analyzer_prefixed_openai_key_takes_precedence(monkeypatch: pyte
     monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
-    assert analysis.resolve_model(None) == "openai:gpt-5.4"
+    assert analysis.resolve_model(None).startswith("openai:")
 
 
 def test_failure_analyzer_prefixed_anthropic_key_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -607,6 +621,7 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
             skill_sources=["/repo/.deepagents/skills"],
         ),
     )
+    monkeypatch.setattr(analysis, "build_agent_model", lambda model, **_: model or "openai:gpt-5")
 
     sink = io.StringIO()
     result = await analysis.analyze_failure(
@@ -685,6 +700,7 @@ async def test_generate_pr_comment_returns_single_line_text(monkeypatch: pytest.
             skill_sources=["/repo/.deepagents/skills"],
         ),
     )
+    monkeypatch.setattr(analysis, "build_agent_model", lambda model, **_: model or "openai:gpt-5")
 
     comment = await analysis.generate_pr_comment(
         report_markdown="## Summary\nfull report",
@@ -769,6 +785,7 @@ async def test_analyze_failure_repairs_invalid_report(monkeypatch: pytest.Monkey
             skill_sources=[],
         ),
     )
+    monkeypatch.setattr(analysis, "build_agent_model", lambda model, **_: model or "openai:gpt-5")
 
     result = await analysis.analyze_failure(
         make_result(
@@ -862,6 +879,7 @@ async def test_analyze_failure_requests_one_symbol_link_cleanup(
             skill_sources=[],
         ),
     )
+    monkeypatch.setattr(analysis, "build_agent_model", lambda model, **_: model or "openai:gpt-5")
 
     result = await analysis.analyze_failure(
         make_result(

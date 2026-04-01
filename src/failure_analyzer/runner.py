@@ -176,6 +176,6 @@ async def run_test_command(
     )
 
 
-def buffer_sink() -> TextIO:
+def buffer_sink() -> io.StringIO:
     """Return an in-memory sink for tests."""
     return io.StringIO()

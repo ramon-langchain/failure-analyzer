@@ -58,6 +58,7 @@ async def _async_main(
     *,
     command: tuple[str, ...],
     model: str | None,
+    thinking_effort: str | None,
     instructions: str | None,
     allow_rerun: bool,
     work_dir: Path,
@@ -112,6 +113,7 @@ async def _async_main(
                 max_output_bytes=max_output_bytes,
                 enable_shell_analysis=enable_shell_analysis,
                 allow_rerun=allow_rerun,
+                thinking_effort=thinking_effort,
             )
             report = analysis.report_markdown
             was_streamed = analysis.was_streamed
@@ -147,6 +149,7 @@ async def _async_main(
                     comment_path=pr_comment_output_path,
                     model=model,
                     custom_instructions=instructions,
+                    thinking_effort=thinking_effort,
                     run_url=os.environ["FAILURE_ANALYZER_RUN_URL"],
                 )
             except Exception as exc:
@@ -222,6 +225,11 @@ async def _async_main(
 )
 @click.option("--model", metavar="TEXT", help="LLM identifier, for example openai:gpt-5.")
 @click.option(
+    "--thinking-effort",
+    type=click.Choice(["low", "medium", "high"], case_sensitive=False),
+    help="OpenAI reasoning effort. Defaults to medium.",
+)
+@click.option(
     "--instructions",
     metavar="TEXT",
     help="Additional system instructions appended as higher-priority overrides.",
@@ -260,6 +268,7 @@ async def _async_main(
 @click.argument("command", nargs=-1, type=click.UNPROCESSED)
 def cli(
     model: str | None,
+    thinking_effort: str | None,
     instructions: str | None,
     allow_rerun: bool,
     c: Path,
@@ -277,6 +286,7 @@ def cli(
         _async_main(
             command=command,
             model=model,
+            thinking_effort=thinking_effort.lower() if thinking_effort else None,
             instructions=instructions,
             allow_rerun=allow_rerun,
             work_dir=c,

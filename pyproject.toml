@@ -19,6 +19,7 @@ dependencies = [
 dev = [
     "pytest>=8.3.3",
     "pytest-asyncio>=0.24.0",
+    "ty>=0.0.21",
 ]
 
 [project.scripts]
@@ -36,3 +37,9 @@ failure_analyzer = ["prompts/*.md"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ty.environment]
+python-version = "3.14"
+
+[tool.ty.src]
+include = ["src", "tests", "scripts"]

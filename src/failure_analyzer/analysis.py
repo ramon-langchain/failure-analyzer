@@ -9,6 +9,9 @@ from pathlib import Path
 from textwrap import dedent
 from typing import IO
 from typing import Any
+from typing import cast
+
+from langchain_openai import ChatOpenAI
 
 from failure_analyzer.context_builder import append_invocation_context, load_invocation_context
 from failure_analyzer.deepagents_conventions import load_deepagents_conventions
@@ -30,9 +33,11 @@ from failure_analyzer.report_validation import (
     validate_report_markdown,
 )
 
-DEFAULT_MODEL = "openai:gpt-5.4"
+DEFAULT_MODEL = "openai:gpt-5.4-mini"
 MODEL_ENV_VAR = "FAILURE_ANALYZER_MODEL"
-DEFAULT_OPENAI_MODEL = "openai:gpt-5.4"
+THINKING_EFFORT_ENV_VAR = "FAILURE_ANALYZER_THINKING_EFFORT"
+DEFAULT_THINKING_EFFORT = "medium"
+DEFAULT_OPENAI_MODEL = "openai:gpt-5.4-mini"
 DEFAULT_ANTHROPIC_MODEL = "anthropic:claude-sonnet-4-6"
 DEFAULT_GOOGLE_MODEL = "google_genai:gemini-3.1-flash-lite-preview"
 DEFAULT_VERTEX_MODEL = "google_vertexai:gemini-3.1-flash-lite-preview"
@@ -83,6 +88,27 @@ def resolve_model(model: str | None) -> str:
     return DEFAULT_MODEL
 
 
+def resolve_thinking_effort(thinking_effort: str | None) -> str:
+    """Resolve the configured OpenAI thinking effort."""
+    configured = thinking_effort or os.environ.get(THINKING_EFFORT_ENV_VAR)
+    if configured:
+        return configured
+    return DEFAULT_THINKING_EFFORT
+
+
+def build_agent_model(model: str | None, *, thinking_effort: str | None) -> str | ChatOpenAI:
+    """Build the model object passed into Deep Agents."""
+    resolved = resolve_model(model)
+    if resolved.startswith("openai:"):
+        openai_model = cast(Any, ChatOpenAI)
+        return openai_model(
+            model=resolved.partition(":")[2],
+            use_responses_api=True,
+            reasoning_effort=resolve_thinking_effort(thinking_effort),
+        )
+    return resolved
+
+
 def build_analysis_system_prompt(custom_instructions: str | None) -> str:
     """Build the final analysis system prompt including runtime invocation context."""
     with_context = append_invocation_context(ANALYSIS_SYSTEM_PROMPT, load_invocation_context())
@@ -121,6 +147,7 @@ def build_analysis_request(
     max_output_bytes: int,
     enable_shell_analysis: bool,
     allow_rerun: bool,
+    thinking_effort: str = DEFAULT_THINKING_EFFORT,
     timed_output_artifact_ref: str | None = None,
 ) -> AnalysisRequest:
     """Transform a failed test run into an analysis request."""
@@ -142,6 +169,7 @@ def build_analysis_request(
         max_output_bytes=max_output_bytes,
         enable_shell_analysis=enable_shell_analysis,
         allow_rerun=allow_rerun,
+        thinking_effort=thinking_effort,
     )
 
 
@@ -187,6 +215,7 @@ def render_user_prompt(request: AnalysisRequest) -> tuple[str, bool]:
         - Duration: `{duration_text}`
         - Shell-based diagnostics: {shell_mode}
         - Rerunning tests permitted: {"yes" if request.allow_rerun else "no"}
+        - OpenAI thinking effort: `{request.thinking_effort}`
         - Full timed output file: `{timed_output_path}`
         - Timed output format: {STREAM_FORMAT_LEGEND}
         {timed_output_artifact_line}
@@ -455,6 +484,7 @@ async def analyze_failure(
     max_output_bytes: int,
     enable_shell_analysis: bool,
     allow_rerun: bool,
+    thinking_effort: str | None = None,
     status_sink: IO[str] | None = None,
 ) -> AnalysisResult:
     """Run the Deep Agent and return its validated Markdown analysis."""
@@ -470,6 +500,7 @@ async def analyze_failure(
         max_output_bytes=max_output_bytes,
         enable_shell_analysis=enable_shell_analysis,
         allow_rerun=allow_rerun,
+        thinking_effort=resolve_thinking_effort(thinking_effort),
         timed_output_artifact_ref=(
             "timed-output.log"
             if result.timed_output_path is not None
@@ -495,7 +526,7 @@ async def analyze_failure(
         )
 
     agent = create_deep_agent(
-        model=resolve_model(model),
+        model=build_agent_model(model, thinking_effort=thinking_effort),
         tools=[],
         system_prompt=build_analysis_system_prompt(custom_instructions),
         backend=backend,
@@ -605,6 +636,7 @@ async def generate_pr_comment(
     comment_path: Path,
     model: str | None,
     custom_instructions: str | None,
+    thinking_effort: str | None = None,
     run_url: str,
     status_sink: IO[str] | None = None,
 ) -> str:
@@ -616,7 +648,7 @@ async def generate_pr_comment(
     conventions = load_deepagents_conventions(repo_root)
     backend = FilesystemBackend(root_dir=repo_root, virtual_mode=False)
     agent = create_deep_agent(
-        model=resolve_model(model),
+        model=build_agent_model(model, thinking_effort=thinking_effort),
         tools=[],
         system_prompt=append_custom_instructions(PR_COMMENT_SYSTEM_PROMPT, custom_instructions),
         backend=backend,
