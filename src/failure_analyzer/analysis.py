@@ -21,9 +21,9 @@ from failure_analyzer.prompting import (
     load_system_prompt,
 )
 
-DEFAULT_MODEL = "openai:gpt-5.4-mini"
+DEFAULT_MODEL = "openai:gpt-5.4"
 MODEL_ENV_VAR = "FAILURE_ANALYZER_MODEL"
-DEFAULT_OPENAI_MODEL = "openai:gpt-5.4-mini"
+DEFAULT_OPENAI_MODEL = "openai:gpt-5.4"
 DEFAULT_ANTHROPIC_MODEL = "anthropic:claude-sonnet-4-6"
 DEFAULT_GOOGLE_MODEL = "google_genai:gemini-3.1-flash-lite-preview"
 DEFAULT_VERTEX_MODEL = "google_vertexai:gemini-3.1-flash-lite-preview"

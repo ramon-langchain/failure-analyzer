@@ -158,7 +158,7 @@ def test_resolve_model_defaults_to_gpt_5_4_mini(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
-    assert analysis.resolve_model(None) == "openai:gpt-5.4-mini"
+    assert analysis.resolve_model(None) == "openai:gpt-5.4"
 
 
 def test_resolve_model_prefers_explicit_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -177,7 +177,7 @@ def test_resolve_model_selects_openai_when_key_present(monkeypatch: pytest.Monke
     monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
-    assert analysis.resolve_model(None) == "openai:gpt-5.4-mini"
+    assert analysis.resolve_model(None) == "openai:gpt-5.4"
 
 
 def test_resolve_model_selects_anthropic_when_no_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -227,7 +227,7 @@ def test_failure_analyzer_prefixed_openai_key_takes_precedence(monkeypatch: pyte
     monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
-    assert analysis.resolve_model(None) == "openai:gpt-5.4-mini"
+    assert analysis.resolve_model(None) == "openai:gpt-5.4"
 
 
 def test_failure_analyzer_prefixed_anthropic_key_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
