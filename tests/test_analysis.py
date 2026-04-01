@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from failure_analyzer import analysis
+from failure_analyzer.deepagents_conventions import DeepAgentsConventions
 from failure_analyzer.models import TestRunResult
 
 
@@ -204,6 +205,8 @@ def test_failure_analyzer_prefixed_vertex_project_takes_precedence(monkeypatch: 
 
 @pytest.mark.asyncio
 async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_kwargs: dict[str, object] = {}
+
     class FakeAgent:
         async def astream(self, *_args, **_kwargs):
             yield (
@@ -258,7 +261,8 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
     class FakeLocalShellBackend(FakeFilesystemBackend):
         pass
 
-    def fake_create_deep_agent(**_: object) -> FakeAgent:
+    def fake_create_deep_agent(**kwargs: object) -> FakeAgent:
+        captured_kwargs.update(kwargs)
         return FakeAgent()
 
     import sys
@@ -271,6 +275,17 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
     )
     monkeypatch.setitem(sys.modules, "deepagents", deepagents_module)
     monkeypatch.setitem(sys.modules, "deepagents.backends", backends_module)
+    monkeypatch.setattr(
+        analysis,
+        "load_deepagents_conventions",
+        lambda _repo_root: DeepAgentsConventions(
+            user_cwd=Path("/repo"),
+            project_root=Path("/repo"),
+            agent_name="failure-analyzer",
+            memory_sources=["/repo/.deepagents/AGENTS.md"],
+            skill_sources=["/repo/.deepagents/skills"],
+        ),
+    )
 
     sink = io.StringIO()
     result = await analysis.analyze_failure(
@@ -287,3 +302,6 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
     assert "[analyzer] Starting failure analysis..." in stderr_output
     assert "[analyzer] Tool: read_file /repo/pricing.go" in stderr_output
     assert "## Summary\nFailure report" in stderr_output
+    assert captured_kwargs["memory"] == ["/repo/.deepagents/AGENTS.md"]
+    assert captured_kwargs["skills"] == ["/repo/.deepagents/skills"]
+    assert captured_kwargs["name"] == "failure-analyzer"

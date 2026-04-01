@@ -9,6 +9,7 @@ from textwrap import dedent
 from typing import IO
 from typing import Any
 
+from failure_analyzer.deepagents_conventions import load_deepagents_conventions
 from failure_analyzer.models import AnalysisRequest, AnalysisResult, TestRunResult
 from failure_analyzer.prompting import (
     STREAM_FORMAT_LEGEND,
@@ -339,6 +340,7 @@ async def analyze_failure(
     from deepagents.backends import FilesystemBackend, LocalShellBackend
 
     status_sink = status_sink or sys.stderr
+    conventions = load_deepagents_conventions(repo_root)
 
     request = build_analysis_request(
         result,
@@ -366,6 +368,9 @@ async def analyze_failure(
         tools=[],
         system_prompt=ANALYSIS_SYSTEM_PROMPT,
         backend=backend,
+        memory=conventions.memory_sources or None,
+        skills=conventions.skill_sources or None,
+        name=conventions.agent_name,
     )
     emit_status_line(status_sink, "Starting failure analysis...")
     emit_status_line(status_sink, "Thinking...")

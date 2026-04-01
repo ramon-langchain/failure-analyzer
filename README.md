@@ -6,6 +6,22 @@ Warning: experimental. Expect breaking changes, rough edges, and prompt/model be
 
 If a `.env` file is present in the current repository, it is loaded automatically before model initialization.
 
+`failure-analyzer` also borrows the main Deep Agents memory and skills conventions:
+
+- memory files, in load order:
+  - `~/.deepagents/failure-analyzer/AGENTS.md`
+  - `<project-root>/.deepagents/AGENTS.md`
+  - `<project-root>/AGENTS.md`
+- skills directories, in precedence order:
+  - `~/.deepagents/failure-analyzer/skills/`
+  - `~/.agents/skills/`
+  - `<project-root>/.deepagents/skills/`
+  - `<project-root>/.agents/skills/`
+  - `~/.claude/skills/`
+  - `<project-root>/.claude/skills/`
+
+`<project-root>` is the nearest parent directory containing `.git`. You can override the user-level Deep Agents agent name with `FAILURE_ANALYZER_AGENT_NAME`.
+
 ## GitHub Actions
 
 Recommended usage is the reusable workflow:
