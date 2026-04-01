@@ -70,6 +70,21 @@ async def _async_main(
     if result.exit_code == 0:
         return 0
 
+    artifact_dir = default_artifact_dir()
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    report_output_path = report_file
+    if report_output_path is None:
+        report_output_path = (
+            default_report_path()
+            if is_github_actions()
+            else work_dir / ".failure-analyzer" / "failure-analysis.md"
+        )
+    pr_comment_output_path = (
+        default_pr_comment_path()
+        if is_github_actions()
+        else work_dir / ".failure-analyzer" / "pr-comment.md"
+    )
+
     missing_credentials_summary = None
     brief_pr_comment = ""
     if is_github_actions() and not has_any_provider_credentials(SUPPORTED_SECRET_NAMES):
@@ -81,6 +96,8 @@ async def _async_main(
             analysis = await analyze_failure(
                 result,
                 repo_root=work_dir,
+                report_path=report_output_path,
+                artifact_dir=artifact_dir,
                 model=model,
                 custom_instructions=instructions,
                 max_output_bytes=max_output_bytes,
@@ -104,8 +121,6 @@ async def _async_main(
             )
 
     run_context_markdown = ""
-    artifact_dir = default_artifact_dir()
-    artifact_dir.mkdir(parents=True, exist_ok=True)
     if missing_credentials_summary is None:
         report = linkify_report_markdown(report, result)
         if (
@@ -119,6 +134,7 @@ async def _async_main(
                     report_markdown=report,
                     command=result.command,
                     repo_root=work_dir,
+                    comment_path=pr_comment_output_path,
                     model=model,
                     custom_instructions=instructions,
                     run_url=os.environ["FAILURE_ANALYZER_RUN_URL"],
@@ -132,11 +148,9 @@ async def _async_main(
     github_report_handled = False
     if is_github_actions():
         export_artifact_dir(artifact_dir)
-        if report_file is None and missing_credentials_summary is None:
-            report_file = default_report_path()
-        if report_file is not None:
-            report_file.parent.mkdir(parents=True, exist_ok=True)
-            report_file.write_text(report, encoding="utf-8")
+        if report_output_path is not None and missing_credentials_summary is None:
+            report_output_path.parent.mkdir(parents=True, exist_ok=True)
+            report_output_path.write_text(report, encoding="utf-8")
             github_report_handled = True
 
         pr_comment_file = None
@@ -144,21 +158,25 @@ async def _async_main(
         if brief_pr_comment:
             link = os.environ.get("FAILURE_ANALYZER_RUN_URL", "").strip()
             comment_text = f"{brief_pr_comment} Full analysis: {link}" if link else brief_pr_comment
-            pr_comment_file = default_pr_comment_path()
+            pr_comment_file = pr_comment_output_path
             pr_comment_file.parent.mkdir(parents=True, exist_ok=True)
             pr_comment_file.write_text(comment_text, encoding="utf-8")
             pr_comment_exported = export_pr_comment_path(pr_comment_file)
 
-        exported = export_report_path(report_file) if report_file is not None else False
+        exported = (
+            export_report_path(report_output_path)
+            if report_output_path is not None and missing_credentials_summary is None
+            else False
+        )
         summarized = False if should_defer_step_summary() else append_step_summary(report)
         if verbose:
             if exported:
                 click.echo(
-                    f"GitHub Actions report output set: failure_analyzer_report_path={report_file}",
+                    f"GitHub Actions report output set: failure_analyzer_report_path={report_output_path}",
                     err=True,
                 )
-            if report_file is not None:
-                click.echo(f"GitHub Actions report file: {report_file}", err=True)
+            if report_output_path is not None:
+                click.echo(f"GitHub Actions report file: {report_output_path}", err=True)
             if pr_comment_exported and pr_comment_file is not None:
                 click.echo(f"GitHub Actions PR comment file: {pr_comment_file}", err=True)
             if summarized:
@@ -171,9 +189,9 @@ async def _async_main(
         click.echo("", err=True)
         click.echo(run_context_markdown, err=True)
 
-    if report_file is not None and not github_report_handled:
-        report_file.parent.mkdir(parents=True, exist_ok=True)
-        report_file.write_text(report, encoding="utf-8")
+    if report_output_path is not None and not github_report_handled and missing_credentials_summary is None:
+        report_output_path.parent.mkdir(parents=True, exist_ok=True)
+        report_output_path.write_text(report, encoding="utf-8")
 
     if NO_PRESERVE_EXIT_FLAG in parsed_flags:
         click.echo(

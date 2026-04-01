@@ -20,6 +20,11 @@ from failure_analyzer.prompting import (
     load_pr_comment_prompt,
     load_system_prompt,
 )
+from failure_analyzer.report_validation import (
+    degrade_invalid_markdown,
+    format_validation_feedback,
+    validate_report_markdown,
+)
 
 DEFAULT_MODEL = "openai:gpt-5.4"
 MODEL_ENV_VAR = "FAILURE_ANALYZER_MODEL"
@@ -186,6 +191,26 @@ def render_user_prompt(request: AnalysisRequest) -> tuple[str, bool]:
     return prompt, stdout_truncated or stderr_truncated or combined_truncated
 
 
+def render_report_generation_prompt(request: AnalysisRequest, report_path: Path) -> tuple[str, bool]:
+    """Create the analyzer prompt and instruct the agent to write a report file."""
+    prompt, used_truncation = render_user_prompt(request)
+    output_contract = dedent(
+        f"""\
+
+        ### Report Output Contract
+
+        Write your final report to this exact file path in GitHub-flavored Markdown:
+
+        ```text
+        {report_path}
+        ```
+
+        The file you write is the source of truth. Do not rely on the chat response as the final output.
+        """
+    )
+    return f"{prompt.rstrip()}\n{output_contract}", used_truncation
+
+
 def extract_text_content(message: Any) -> str:
     """Extract text content from a LangChain message-like object."""
     if isinstance(message, dict) and "content" in message:
@@ -329,17 +354,51 @@ def build_fallback_report(result: TestRunResult, exc: Exception) -> str:
     )
 
 
+def read_output_file(path: Path) -> str:
+    """Read an agent-authored output file."""
+    if not path.exists():
+        raise FileNotFoundError(path)
+    return path.read_text(encoding="utf-8").strip()
+
+
+async def stream_agent_status(
+    agent: Any,
+    *,
+    prompt: str,
+    status_sink: IO[str],
+) -> None:
+    """Run an agent request while surfacing tool activity to stderr."""
+    seen_messages = 0
+    seen_tool_call_ids: set[str] = set()
+    async for mode, data in agent.astream(
+        {"messages": [{"role": "user", "content": prompt}]},
+        stream_mode=["values"],
+    ):
+        if mode != "values":
+            continue
+        messages = data.get("messages", [])
+        if isinstance(messages, list):
+            seen_messages = emit_new_message_statuses(
+                messages,
+                seen_messages=seen_messages,
+                seen_tool_call_ids=seen_tool_call_ids,
+                status_sink=status_sink,
+            )
+
+
 async def analyze_failure(
     result: TestRunResult,
     *,
     repo_root: Path,
+    report_path: Path,
+    artifact_dir: Path,
     model: str | None,
     custom_instructions: str | None,
     max_output_bytes: int,
     enable_shell_analysis: bool,
     status_sink: IO[str] | None = None,
 ) -> AnalysisResult:
-    """Run the Deep Agent and return its Markdown analysis."""
+    """Run the Deep Agent and return its validated Markdown analysis."""
     from deepagents import create_deep_agent
     from deepagents.backends import FilesystemBackend, LocalShellBackend
 
@@ -352,7 +411,7 @@ async def analyze_failure(
         max_output_bytes=max_output_bytes,
         enable_shell_analysis=enable_shell_analysis,
     )
-    user_prompt, used_truncation = render_user_prompt(request)
+    user_prompt, used_truncation = render_report_generation_prompt(request, report_path)
 
     backend: Any
     if enable_shell_analysis:
@@ -378,67 +437,43 @@ async def analyze_failure(
     )
     emit_status_line(status_sink, "Starting failure analysis...")
     emit_status_line(status_sink, "Thinking...")
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    await stream_agent_status(agent, prompt=user_prompt, status_sink=status_sink)
 
-    seen_messages = 0
-    seen_tool_call_ids: set[str] = set()
-    streamed_report_parts: list[str] = []
-    started_report = False
-    pending_report_text = ""
-    last_values_messages: list[Any] = []
+    report = read_output_file(report_path)
+    validation = validate_report_markdown(report, result=result, artifact_dir=artifact_dir)
+    attempts = 0
+    while not validation.is_valid and attempts < 2:
+        attempts += 1
+        emit_status_line(
+            status_sink,
+            f"Report validation failed ({len(validation.issues)} issue(s)); requesting repair attempt {attempts}/2.",
+        )
+        emit_status_line(status_sink, "Thinking...")
+        repair_prompt = format_validation_feedback(validation, report_path)
+        await stream_agent_status(agent, prompt=repair_prompt, status_sink=status_sink)
+        report = read_output_file(report_path)
+        validation = validate_report_markdown(report, result=result, artifact_dir=artifact_dir)
 
-    async for mode, data in agent.astream(
-        {"messages": [{"role": "user", "content": user_prompt}]},
-        stream_mode=["messages", "values"],
-    ):
-        if mode == "values":
-            messages = data.get("messages", [])
-            if isinstance(messages, list):
-                last_values_messages = messages
-                seen_messages = emit_new_message_statuses(
-                    messages,
-                    seen_messages=seen_messages,
-                    seen_tool_call_ids=seen_tool_call_ids,
-                    status_sink=status_sink,
-                )
-            continue
+    if not validation.is_valid:
+        emit_status_line(
+            status_sink,
+            f"Report still has {len(validation.issues)} invalid reference(s) after repair; downgrading them to plain text.",
+        )
+        report = degrade_invalid_markdown(report, validation)
+        report_path.write_text(report, encoding="utf-8")
 
-        if mode != "messages":
-            continue
-
-        chunk, _metadata = data
-        text = extract_chunk_text(chunk)
-        if not text:
-            continue
-        if not started_report:
-            pending_report_text += text
-            marker_index = pending_report_text.find("## Summary")
-            if marker_index == -1:
-                continue
-            report_text = pending_report_text[marker_index:]
-            status_sink.write("\n")
-            status_sink.write(report_text)
-            status_sink.flush()
-            streamed_report_parts.append(report_text)
-            pending_report_text = ""
-            started_report = True
-            continue
-
-        status_sink.write(text)
-        status_sink.flush()
-        streamed_report_parts.append(text)
-
-    report = find_last_text_message(last_values_messages).strip()
-    if not report:
-        report = "".join(streamed_report_parts).strip()
-
-    if started_report and report and not report.endswith("\n"):
+    status_sink.write("\n")
+    status_sink.write(report)
+    if not report.endswith("\n"):
         status_sink.write("\n")
-        status_sink.flush()
+    status_sink.flush()
 
     return AnalysisResult(
         report_markdown=report,
+        report_path=report_path,
         used_truncation=used_truncation,
-        was_streamed=started_report,
+        was_streamed=True,
     )
 
 
@@ -447,6 +482,7 @@ async def generate_pr_comment(
     report_markdown: str,
     command: tuple[str, ...],
     repo_root: Path,
+    comment_path: Path,
     model: str | None,
     custom_instructions: str | None,
     run_url: str,
@@ -472,6 +508,11 @@ async def generate_pr_comment(
         f"""\
         Exact test command: `{format_exact_command(list(command))}`
         Workflow run URL: `{run_url}`
+        Write the final PR comment to this exact file path:
+
+        ```text
+        {comment_path}
+        ```
 
         Full failure analysis report:
 
@@ -479,16 +520,7 @@ async def generate_pr_comment(
         """
     )
     emit_status_line(status_sink, "Generating short PR comment...")
-
-    final_messages: list[Any] = []
-    async for mode, data in agent.astream(
-        {"messages": [{"role": "user", "content": prompt}]},
-        stream_mode=["values"],
-    ):
-        if mode == "values":
-            messages = data.get("messages", [])
-            if isinstance(messages, list):
-                final_messages = messages
-
-    comment = find_last_text_message(final_messages).strip()
+    comment_path.parent.mkdir(parents=True, exist_ok=True)
+    await stream_agent_status(agent, prompt=prompt, status_sink=status_sink)
+    comment = read_output_file(comment_path)
     return " ".join(comment.split())

@@ -9,6 +9,7 @@ import pytest
 from failure_analyzer import analysis
 from failure_analyzer.deepagents_conventions import DeepAgentsConventions
 from failure_analyzer.models import TestRunResult
+from failure_analyzer.report_validation import validate_report_markdown
 
 
 def make_result(**overrides: object) -> TestRunResult:
@@ -62,6 +63,7 @@ def test_render_user_prompt_includes_failure_context() -> None:
 def test_system_prompt_is_loaded_from_resource_file() -> None:
     assert "<agent_identity>" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "<analysis_rules>" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "<output_contract>" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "time-ordered output log" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "O` means stdout" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "FAILURE_ANALYZER_FILES_BASE" in analysis.ANALYSIS_SYSTEM_PROMPT
@@ -69,10 +71,13 @@ def test_system_prompt_is_loaded_from_resource_file() -> None:
     assert "do not construct Markdown links yourself" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "FAILURE_ANALYZER_CAN_READ_ACTIONS=true" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "gh" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "GitHub-flavored Markdown" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "```go path/to/file.go#L55-L70" in analysis.ANALYSIS_SYSTEM_PROMPT
 
 
 def test_pr_comment_prompt_is_loaded_from_resource_file() -> None:
     assert "<output_requirements>" in analysis.PR_COMMENT_SYSTEM_PROMPT
+    assert "write the final comment to the exact Markdown file path" in analysis.PR_COMMENT_SYSTEM_PROMPT
     assert "exactly one paragraph" in analysis.PR_COMMENT_SYSTEM_PROMPT
     assert "Do not include a \"full analysis\" link" in analysis.PR_COMMENT_SYSTEM_PROMPT
 
@@ -164,6 +169,57 @@ def test_linkify_artifact_references_rewrites_plain_artifact_markers() -> None:
     assert "[artifact:logs/failure.log](https://github.com/example/repo/actions/runs/123/artifacts/999)" in linked
     assert "[artifact:notes/repro.md](https://github.com/example/repo/actions/runs/123/artifacts/999)" in linked
     assert "```text\nartifact:logs/raw.log\n```" in linked
+
+
+def test_validate_report_markdown_accepts_valid_source_and_artifact_refs(tmp_path: Path) -> None:
+    workspace = tmp_path / "repo"
+    artifact_dir = tmp_path / "artifacts"
+    source_file = workspace / "pkg" / "pricing.go"
+    artifact_file = artifact_dir / "logs" / "failure.log"
+    source_file.parent.mkdir(parents=True)
+    artifact_file.parent.mkdir(parents=True)
+    source_file.write_text("package pkg\n\nfunc Tax() int {\n\treturn 91\n}\n", encoding="utf-8")
+    artifact_file.write_text("boom\n", encoding="utf-8")
+
+    result = make_result(
+        cwd=workspace,
+        environment={"GITHUB_WORKSPACE": str(workspace)},
+    )
+    markdown = (
+        "See pkg/pricing.go:3-5 and artifact:logs/failure.log.\n\n"
+        "```go pkg/pricing.go#L3-L5\n"
+        "func Tax() int {\n\treturn 91\n}\n"
+        "```\n"
+    )
+
+    validation = validate_report_markdown(markdown, result=result, artifact_dir=artifact_dir)
+    assert validation.is_valid is True
+
+
+def test_validate_report_markdown_rejects_bad_excerpt_and_missing_artifact(tmp_path: Path) -> None:
+    workspace = tmp_path / "repo"
+    artifact_dir = tmp_path / "artifacts"
+    source_file = workspace / "pkg" / "pricing.go"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("package pkg\n\nfunc Tax() int {\n\treturn 91\n}\n", encoding="utf-8")
+
+    result = make_result(
+        cwd=workspace,
+        environment={"GITHUB_WORKSPACE": str(workspace)},
+    )
+    markdown = (
+        "See pkg/pricing.go:99 and artifact:logs/missing.log.\n\n"
+        "```go pkg/pricing.go#L3-L5\n"
+        "func Tax() int {\n\treturn 90\n}\n"
+        "```\n"
+    )
+
+    validation = validate_report_markdown(markdown, result=result, artifact_dir=artifact_dir)
+    assert validation.is_valid is False
+    reasons = [issue.reason for issue in validation.issues]
+    assert any("outside file length" in reason for reason in reasons)
+    assert any("artifact does not exist" in reason for reason in reasons)
+    assert any("does not exactly match" in reason for reason in reasons)
 
 
 def test_resolve_model_defaults_to_gpt_5_4_mini(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -286,9 +342,13 @@ def test_failure_analyzer_prefixed_vertex_project_takes_precedence(monkeypatch: 
 @pytest.mark.asyncio
 async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_kwargs: dict[str, object] = {}
+    report_path = Path("/tmp/failure-analyzer/report.md")
+    artifact_dir = Path("/tmp/failure-analyzer/artifacts")
 
     class FakeAgent:
         async def astream(self, *_args, **_kwargs):
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text("## Summary\nFailure report", encoding="utf-8")
             yield (
                 "values",
                 {
@@ -311,25 +371,6 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
                             (),
                             {"tool_call_id": "tool-1", "name": "read_file", "content": "ok"},
                         )(),
-                    ]
-                },
-            )
-            yield (
-                "messages",
-                (
-                    type(
-                        "FakeChunk",
-                        (),
-                        {"content": [{"type": "text", "text": "## Summary\nFailure report"}]},
-                    )(),
-                    {},
-                ),
-            )
-            yield (
-                "values",
-                {
-                    "messages": [
-                        {"content": "## Summary\nFailure report"},
                     ]
                 },
             )
@@ -371,6 +412,8 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
     result = await analysis.analyze_failure(
         make_result(),
         repo_root=Path("/repo"),
+        report_path=report_path,
+        artifact_dir=artifact_dir,
         model="openai:gpt-5",
         custom_instructions="Prefer precise source references.",
         max_output_bytes=1024,
@@ -378,6 +421,7 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
         status_sink=sink,
     )
     assert result.report_markdown == "## Summary\nFailure report"
+    assert result.report_path == report_path
     assert result.was_streamed is True
     stderr_output = sink.getvalue()
     assert "[analyzer] Starting failure analysis..." in stderr_output
@@ -392,15 +436,19 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
 @pytest.mark.asyncio
 async def test_generate_pr_comment_returns_single_line_text(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_kwargs: dict[str, object] = {}
+    comment_path = Path("/tmp/failure-analyzer/pr-comment.md")
 
     class FakeAgent:
         async def astream(self, *_args, **_kwargs):
+            comment_path.parent.mkdir(parents=True, exist_ok=True)
+            comment_path.write_text(
+                "Root cause is bad rounding in pricing plus free-shipping threshold logic.\n",
+                encoding="utf-8",
+            )
             yield (
                 "values",
                 {
-                    "messages": [
-                        {"content": "Root cause is bad rounding in pricing plus free-shipping threshold logic.\n"}
-                    ]
+                    "messages": []
                 },
             )
 
@@ -435,6 +483,7 @@ async def test_generate_pr_comment_returns_single_line_text(monkeypatch: pytest.
         report_markdown="## Summary\nfull report",
         command=("go", "test", "./..."),
         repo_root=Path("/repo"),
+        comment_path=comment_path,
         model="openai:gpt-5",
         custom_instructions="Mention confidence only if low.",
         run_url="https://github.com/example/repo/actions/runs/123",
@@ -443,3 +492,91 @@ async def test_generate_pr_comment_returns_single_line_text(monkeypatch: pytest.
     assert comment == "Root cause is bad rounding in pricing plus free-shipping threshold logic."
     assert captured_kwargs["name"] == "failure-analyzer-pr-comment"
     assert "Mention confidence only if low." in str(captured_kwargs["system_prompt"])
+
+
+@pytest.mark.asyncio
+async def test_analyze_failure_repairs_invalid_report(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    report_path = tmp_path / "report.md"
+    artifact_dir = tmp_path / "artifacts"
+    artifact_file = artifact_dir / "logs" / "failure.log"
+    artifact_file.parent.mkdir(parents=True)
+    artifact_file.write_text("boom\n", encoding="utf-8")
+    workspace = tmp_path / "repo"
+    source_file = workspace / "pkg" / "pricing.go"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("package pkg\n\nfunc Tax() int {\n\treturn 91\n}\n", encoding="utf-8")
+    prompts: list[str] = []
+
+    class FakeAgent:
+        async def astream(self, payload, **_kwargs):
+            prompt = payload["messages"][0]["content"]
+            prompts.append(prompt)
+            if "failed validation" in prompt:
+                report_path.write_text(
+                    "## Summary\nFixed report citing pkg/pricing.go:3-5 and artifact:logs/failure.log.\n\n"
+                    "## Root Cause\nMismatch.\n\n"
+                    "## Evidence\n```go pkg/pricing.go#L3-L5\nfunc Tax() int {\n\treturn 91\n}\n```\n\n"
+                    "## Likely Fix Direction\nAdjust the implementation.\n\n"
+                    "## Confidence\nHigh.\n",
+                    encoding="utf-8",
+                )
+            else:
+                report_path.write_text(
+                    "## Summary\nBroken report citing pkg/pricing.go:99 and artifact:logs/missing.log.\n\n"
+                    "## Root Cause\nMismatch.\n\n"
+                    "## Evidence\n```go pkg/pricing.go#L3-L5\nfunc Tax() int {\n\treturn 90\n}\n```\n\n"
+                    "## Likely Fix Direction\nAdjust the implementation.\n\n"
+                    "## Confidence\nHigh.\n",
+                    encoding="utf-8",
+                )
+            yield ("values", {"messages": []})
+
+    class FakeFilesystemBackend:
+        def __init__(self, **_: object) -> None:
+            pass
+
+    class FakeLocalShellBackend(FakeFilesystemBackend):
+        pass
+
+    def fake_create_deep_agent(**_kwargs: object) -> FakeAgent:
+        return FakeAgent()
+
+    import sys
+    import types
+
+    deepagents_module = types.SimpleNamespace(create_deep_agent=fake_create_deep_agent)
+    backends_module = types.SimpleNamespace(
+        FilesystemBackend=FakeFilesystemBackend,
+        LocalShellBackend=FakeLocalShellBackend,
+    )
+    monkeypatch.setitem(sys.modules, "deepagents", deepagents_module)
+    monkeypatch.setitem(sys.modules, "deepagents.backends", backends_module)
+    monkeypatch.setattr(
+        analysis,
+        "load_deepagents_conventions",
+        lambda _repo_root: DeepAgentsConventions(
+            user_cwd=workspace,
+            project_root=workspace,
+            agent_name="failure-analyzer",
+            memory_sources=[],
+            skill_sources=[],
+        ),
+    )
+
+    result = await analysis.analyze_failure(
+        make_result(
+            cwd=workspace,
+            environment={"GITHUB_WORKSPACE": str(workspace), "OPENAI_API_KEY": "secret"},
+        ),
+        repo_root=workspace,
+        report_path=report_path,
+        artifact_dir=artifact_dir,
+        model="openai:gpt-5",
+        custom_instructions=None,
+        max_output_bytes=1024,
+        enable_shell_analysis=False,
+        status_sink=io.StringIO(),
+    )
+
+    assert "Fixed report citing pkg/pricing.go:3-5" in result.report_markdown
+    assert any("failed validation" in prompt for prompt in prompts[1:])

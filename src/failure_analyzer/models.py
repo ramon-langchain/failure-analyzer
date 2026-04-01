@@ -66,5 +66,6 @@ class AnalysisResult:
     __test__ = False
 
     report_markdown: str
+    report_path: Path | None = None
     used_truncation: bool = False
     was_streamed: bool = False

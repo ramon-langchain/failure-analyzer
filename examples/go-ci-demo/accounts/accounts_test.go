@@ -1,13 +1,18 @@
 package accounts
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+)
 
 func TestNormalizeEmail(t *testing.T) {
 	t.Parallel()
 
 	got := NormalizeEmail("  SUPPORT@Example.COM  ")
-	if got != "support@example.com" {
-		t.Fatalf("NormalizeEmail() = %q, want %q", got, "support@example.com")
+	want := "support@example.com"
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("NormalizeEmail() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -51,7 +56,8 @@ func TestPrimaryDomain(t *testing.T) {
 	t.Parallel()
 
 	got := PrimaryDomain("alerts@payments.internal")
-	if got != "payments.internal" {
-		t.Fatalf("PrimaryDomain() = %q, want %q", got, "payments.internal")
+	want := "payments.internal"
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("PrimaryDomain() mismatch (-want +got):\n%s", diff)
 	}
 }

@@ -1,6 +1,10 @@
 package pricing
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+)
 
 func TestSubtotalCents(t *testing.T) {
 	t.Parallel()
@@ -13,8 +17,9 @@ func TestSubtotalCents(t *testing.T) {
 	}
 
 	got := SubtotalCents(items)
-	if got != 5250 {
-		t.Fatalf("SubtotalCents() = %d, want %d", got, 5250)
+	want := 5250
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("SubtotalCents() mismatch (-want +got):\n%s", diff)
 	}
 }
 

@@ -207,7 +207,7 @@ def append_run_context(report: str, result: TestRunResult) -> str:
     return f"{report.rstrip()}\n\n{context}\n"
 
 
-def _candidate_repo_relative_path(raw_path: str, result: TestRunResult) -> str | None:
+def resolve_repo_relative_path(raw_path: str, result: TestRunResult) -> str | None:
     """Resolve a referenced file path to a repo-relative path when possible."""
     workspace = result.environment.get("GITHUB_WORKSPACE")
     cwd = result.cwd.resolve()
@@ -255,7 +255,7 @@ def _linkify_file_references(text: str, result: TestRunResult) -> str:
         raw_path = match.group("path")
         line = match.group("line")
         end_line = match.group("end_line")
-        repo_relative = _candidate_repo_relative_path(raw_path, result)
+        repo_relative = resolve_repo_relative_path(raw_path, result)
         if repo_relative is None:
             return match.group(0)
 
@@ -288,8 +288,11 @@ def linkify_artifact_references(markdown: str, artifact_url: str | None) -> str:
         return markdown
 
     def replace(match: re.Match[str]) -> str:
-        label = f"artifact:{match.group('path')}"
-        return f"[{label}]({artifact_url})"
+        raw_path = match.group("path")
+        stripped_path = raw_path.rstrip(".,;:!?")
+        suffix = raw_path[len(stripped_path) :]
+        label = f"artifact:{stripped_path}"
+        return f"[{label}]({artifact_url}){suffix}"
 
     parts = _CODE_FENCE_SPLIT_PATTERN.split(markdown)
     linked_parts = [

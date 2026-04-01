@@ -4,6 +4,7 @@ You are generating a very short GitHub pull request comment about a CI test fail
 
 <output_requirements>
 Your output requirements are strict:
+- write the final comment to the exact Markdown file path provided in the user message
 - exactly one paragraph
 - no headings
 - no bullet points
