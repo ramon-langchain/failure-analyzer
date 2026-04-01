@@ -4,9 +4,9 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from test_analyzer.cli import cli
-from test_analyzer.github_actions import REPORT_OUTPUT_NAME
-from test_analyzer.models import AnalysisResult, TestRunResult
+from failure_analyzer.cli import cli
+from failure_analyzer.github_actions import REPORT_OUTPUT_NAME
+from failure_analyzer.models import AnalysisResult, TestRunResult
 
 
 def make_result(exit_code: int = 1) -> TestRunResult:
@@ -30,8 +30,8 @@ def test_cli_skips_analysis_for_success(monkeypatch) -> None:
     async def fake_analyze_failure(*args, **kwargs):
         raise AssertionError("analysis should not run")
 
-    monkeypatch.setattr("test_analyzer.cli.run_test_command", fake_run_test_command)
-    monkeypatch.setattr("test_analyzer.cli.analyze_failure", fake_analyze_failure)
+    monkeypatch.setattr("failure_analyzer.cli.run_test_command", fake_run_test_command)
+    monkeypatch.setattr("failure_analyzer.cli.analyze_failure", fake_analyze_failure)
 
     runner = CliRunner()
     result = runner.invoke(cli, ["go", "test", "./..."])
@@ -50,8 +50,8 @@ def test_cli_runs_analysis_and_preserves_exit_code(monkeypatch, tmp_path: Path) 
             was_streamed=False,
         )
 
-    monkeypatch.setattr("test_analyzer.cli.run_test_command", fake_run_test_command)
-    monkeypatch.setattr("test_analyzer.cli.analyze_failure", fake_analyze_failure)
+    monkeypatch.setattr("failure_analyzer.cli.run_test_command", fake_run_test_command)
+    monkeypatch.setattr("failure_analyzer.cli.analyze_failure", fake_analyze_failure)
 
     report_file = tmp_path / "report.md"
     runner = CliRunner()
@@ -69,7 +69,7 @@ def test_cli_accepts_dash_c_for_working_directory(monkeypatch, tmp_path: Path) -
         captured["cwd"] = cwd
         return make_result(exit_code=0)
 
-    monkeypatch.setattr("test_analyzer.cli.run_test_command", fake_run_test_command)
+    monkeypatch.setattr("failure_analyzer.cli.run_test_command", fake_run_test_command)
 
     runner = CliRunner()
     result = runner.invoke(cli, ["-C", str(tmp_path), "go", "test", "./..."])
@@ -85,8 +85,8 @@ def test_cli_emits_fallback_report_when_analysis_fails(monkeypatch) -> None:
     async def fake_analyze_failure(*args, **kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr("test_analyzer.cli.run_test_command", fake_run_test_command)
-    monkeypatch.setattr("test_analyzer.cli.analyze_failure", fake_analyze_failure)
+    monkeypatch.setattr("failure_analyzer.cli.run_test_command", fake_run_test_command)
+    monkeypatch.setattr("failure_analyzer.cli.analyze_failure", fake_analyze_failure)
 
     runner = CliRunner()
     result = runner.invoke(cli, ["--verbose", "go", "test", "./..."])
@@ -108,10 +108,10 @@ def test_cli_writes_github_actions_report_and_outputs_path(monkeypatch, tmp_path
 
     output_file = tmp_path / "github_output.txt"
     summary_file = tmp_path / "step_summary.md"
-    report_file = tmp_path / "runner-temp" / "test-analyzer" / "failure-analysis.md"
+    report_file = tmp_path / "runner-temp" / "failure-analyzer" / "failure-analysis.md"
 
-    monkeypatch.setattr("test_analyzer.cli.run_test_command", fake_run_test_command)
-    monkeypatch.setattr("test_analyzer.cli.analyze_failure", fake_analyze_failure)
+    monkeypatch.setattr("failure_analyzer.cli.run_test_command", fake_run_test_command)
+    monkeypatch.setattr("failure_analyzer.cli.analyze_failure", fake_analyze_failure)
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path / "runner-temp"))
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
@@ -123,5 +123,5 @@ def test_cli_writes_github_actions_report_and_outputs_path(monkeypatch, tmp_path
     assert report_file.read_text(encoding="utf-8") == "## Summary\nreport body"
     assert f"{REPORT_OUTPUT_NAME}={report_file}" in output_file.read_text(encoding="utf-8")
     summary_text = summary_file.read_text(encoding="utf-8")
-    assert "## test-analyzer Report" in summary_text
+    assert "## failure-analyzer Report" in summary_text
     assert "## Summary\nreport body" in summary_text

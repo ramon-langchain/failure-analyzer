@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from test_analyzer import analysis
-from test_analyzer.models import TestRunResult
+from failure_analyzer import analysis
+from failure_analyzer.models import TestRunResult
 
 
 def make_result(**overrides: object) -> TestRunResult:
@@ -53,10 +53,10 @@ def test_resolve_model_defaults_to_gpt_5_4_mini(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
     assert analysis.resolve_model(None) == "openai:gpt-5.4-mini"
 
 
@@ -72,10 +72,10 @@ def test_resolve_model_selects_openai_when_key_present(monkeypatch: pytest.Monke
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
     assert analysis.resolve_model(None) == "openai:gpt-5.4-mini"
 
 
@@ -85,10 +85,10 @@ def test_resolve_model_selects_anthropic_when_no_openai_key(monkeypatch: pytest.
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
     assert analysis.resolve_model(None) == "anthropic:claude-sonnet-4-6"
 
 
@@ -98,10 +98,10 @@ def test_resolve_model_selects_google_flash_lite(monkeypatch: pytest.MonkeyPatch
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
     assert analysis.resolve_model(None) == "google_genai:gemini-3.1-flash-lite-preview"
 
 
@@ -111,56 +111,56 @@ def test_resolve_model_selects_vertex_flash_lite(monkeypatch: pytest.MonkeyPatch
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
     assert analysis.resolve_model(None) == "google_vertexai:gemini-3.1-flash-lite-preview"
 
 
-def test_test_analyzer_prefixed_openai_key_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failure_analyzer_prefixed_openai_key_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
-    monkeypatch.setenv("TEST_ANALYZER_OPENAI_API_KEY", "prefixed")
+    monkeypatch.setenv("FAILURE_ANALYZER_OPENAI_API_KEY", "prefixed")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "default-anthropic")
     monkeypatch.setenv("GOOGLE_API_KEY", "default-google")
-    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
     assert analysis.resolve_model(None) == "openai:gpt-5.4-mini"
 
 
-def test_test_analyzer_prefixed_anthropic_key_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failure_analyzer_prefixed_anthropic_key_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setenv("TEST_ANALYZER_ANTHROPIC_API_KEY", "prefixed")
+    monkeypatch.setenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", "prefixed")
     monkeypatch.setenv("GOOGLE_API_KEY", "default-google")
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
     assert analysis.resolve_model(None) == "anthropic:claude-sonnet-4-6"
 
 
-def test_test_analyzer_prefixed_google_key_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failure_analyzer_prefixed_google_key_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("TEST_ANALYZER_GOOGLE_API_KEY", "prefixed")
+    monkeypatch.setenv("FAILURE_ANALYZER_GOOGLE_API_KEY", "prefixed")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "default-project")
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
     assert analysis.resolve_model(None) == "google_genai:gemini-3.1-flash-lite-preview"
 
 
-def test_test_analyzer_prefixed_vertex_project_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failure_analyzer_prefixed_vertex_project_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.setenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", "prefixed-project")
+    monkeypatch.setenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", "prefixed-project")
     assert analysis.resolve_model(None) == "google_vertexai:gemini-3.1-flash-lite-preview"
 
 

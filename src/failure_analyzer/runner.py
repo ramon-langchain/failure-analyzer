@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
-from test_analyzer.models import TestRunResult
+from failure_analyzer.models import TestRunResult
 
 
 async def _read_stream(

@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 
-REPORT_OUTPUT_NAME = "test_analyzer_report_path"
+REPORT_OUTPUT_NAME = "failure_analyzer_report_path"
 
 
 def is_github_actions() -> bool:
@@ -16,19 +16,19 @@ def is_github_actions() -> bool:
 
 def default_report_path() -> Path:
     """Choose a stable default report path for GitHub Actions runs."""
-    configured = os.environ.get("TEST_ANALYZER_GITHUB_REPORT_PATH")
+    configured = os.environ.get("FAILURE_ANALYZER_GITHUB_REPORT_PATH")
     if configured:
         return Path(configured).expanduser().resolve()
 
     runner_temp = os.environ.get("RUNNER_TEMP")
     if runner_temp:
-        return Path(runner_temp).resolve() / "test-analyzer" / "failure-analysis.md"
+        return Path(runner_temp).resolve() / "failure-analyzer" / "failure-analysis.md"
 
     workspace = os.environ.get("GITHUB_WORKSPACE")
     if workspace:
-        return Path(workspace).resolve() / ".test-analyzer" / "failure-analysis.md"
+        return Path(workspace).resolve() / ".failure-analyzer" / "failure-analysis.md"
 
-    return Path.cwd() / ".test-analyzer" / "failure-analysis.md"
+    return Path.cwd() / ".failure-analyzer" / "failure-analysis.md"
 
 
 def append_step_summary(markdown: str) -> bool:
@@ -42,7 +42,7 @@ def append_step_summary(markdown: str) -> bool:
     with path.open("a", encoding="utf-8") as handle:
         if path.stat().st_size > 0:
             handle.write("\n\n")
-        handle.write("## test-analyzer Report\n\n")
+        handle.write("## failure-analyzer Report\n\n")
         handle.write(markdown.rstrip())
         handle.write("\n")
     return True

@@ -1,4 +1,4 @@
-"""Click entrypoint for test-analyzer."""
+"""Click entrypoint for failure-analyzer."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from pathlib import Path
 import click
 from dotenv import load_dotenv
 
-from test_analyzer.analysis import analyze_failure, build_fallback_report
-from test_analyzer.github_actions import (
+from failure_analyzer.analysis import analyze_failure, build_fallback_report
+from failure_analyzer.github_actions import (
     append_step_summary,
     default_report_path,
     export_report_path,
     is_github_actions,
 )
-from test_analyzer.runner import run_test_command
+from failure_analyzer.runner import run_test_command
 
 
 async def _async_main(
@@ -64,7 +64,7 @@ async def _async_main(
         if verbose:
             if exported:
                 click.echo(
-                    f"GitHub Actions report output set: test_analyzer_report_path={report_file}",
+                    f"GitHub Actions report output set: failure_analyzer_report_path={report_file}",
                     err=True,
                 )
             click.echo(f"GitHub Actions report file: {report_file}", err=True)
@@ -126,7 +126,7 @@ def cli(
 ) -> None:
     """Run a test command and analyze failures with a Deep Agent."""
     if not command:
-        raise click.UsageError("Provide the wrapped test command after test-analyzer.")
+        raise click.UsageError("Provide the wrapped test command after failure-analyzer.")
 
     exit_code = asyncio.run(
         _async_main(

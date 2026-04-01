@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from test_analyzer.runner import buffer_sink, run_test_command
+from failure_analyzer.runner import buffer_sink, run_test_command
 
 
 @pytest.mark.asyncio

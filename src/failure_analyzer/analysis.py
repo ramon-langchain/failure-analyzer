@@ -9,10 +9,10 @@ from textwrap import dedent
 from typing import IO
 from typing import Any
 
-from test_analyzer.models import AnalysisRequest, AnalysisResult, TestRunResult
+from failure_analyzer.models import AnalysisRequest, AnalysisResult, TestRunResult
 
 DEFAULT_MODEL = "openai:gpt-5.4-mini"
-MODEL_ENV_VAR = "TEST_ANALYZER_MODEL"
+MODEL_ENV_VAR = "FAILURE_ANALYZER_MODEL"
 DEFAULT_OPENAI_MODEL = "openai:gpt-5.4-mini"
 DEFAULT_ANTHROPIC_MODEL = "anthropic:claude-sonnet-4-6"
 DEFAULT_GOOGLE_MODEL = "google_genai:gemini-3.1-flash-lite-preview"
@@ -66,8 +66,8 @@ def resolve_model(model: str | None) -> str:
 
 
 def _get_env(name: str) -> str | None:
-    """Read prefixed test-analyzer env vars before the default provider vars."""
-    return os.environ.get(f"TEST_ANALYZER_{name}") or os.environ.get(name)
+    """Read prefixed failure-analyzer env vars before the default provider vars."""
+    return os.environ.get(f"FAILURE_ANALYZER_{name}") or os.environ.get(name)
 
 
 def truncate_text(text: str, *, max_bytes: int) -> tuple[str, bool]:
