@@ -212,6 +212,11 @@ def _candidate_repo_relative_path(raw_path: str, result: TestRunResult) -> str |
     workspace = result.environment.get("GITHUB_WORKSPACE")
     cwd = result.cwd.resolve()
     workspace_root = Path(workspace).resolve() if workspace else cwd
+    cwd_relative = None
+    try:
+        cwd_relative = cwd.relative_to(workspace_root)
+    except ValueError:
+        cwd_relative = None
 
     candidate = Path(raw_path)
     candidate_paths: list[Path] = []
@@ -219,6 +224,8 @@ def _candidate_repo_relative_path(raw_path: str, result: TestRunResult) -> str |
         candidate_paths.append(candidate.resolve())
     else:
         candidate_paths.append((cwd / candidate).resolve())
+        if cwd_relative is not None:
+            candidate_paths.append((workspace_root / cwd_relative / candidate).resolve())
         candidate_paths.append((workspace_root / candidate).resolve())
 
     seen: set[Path] = set()

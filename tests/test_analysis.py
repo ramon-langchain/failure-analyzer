@@ -131,6 +131,24 @@ def test_linkify_report_markdown_rewrites_file_references() -> None:
     assert "```text\npricing/pricing.go:17\n```" in linked
 
 
+def test_linkify_report_markdown_preserves_subproject_prefix_for_repo_relative_paths() -> None:
+    from failure_analyzer.prompting import linkify_report_markdown
+
+    result = make_result(
+        cwd=Path("/repo/examples/go-ci-demo"),
+        environment={
+            "FAILURE_ANALYZER_FILES_BASE": "https://github.com/example/repo/blob/abc123/",
+            "GITHUB_WORKSPACE": "/repo",
+        },
+    )
+    report = "See pricing/pricing_test.go:66 and pricing/pricing.go:45.\n"
+
+    linked = linkify_report_markdown(report, result)
+
+    assert "[examples/go-ci-demo/pricing/pricing_test.go:66](https://github.com/example/repo/blob/abc123/examples/go-ci-demo/pricing/pricing_test.go#L66)" in linked
+    assert "[examples/go-ci-demo/pricing/pricing.go:45](https://github.com/example/repo/blob/abc123/examples/go-ci-demo/pricing/pricing.go#L45)" in linked
+
+
 def test_linkify_artifact_references_rewrites_plain_artifact_markers() -> None:
     from failure_analyzer.prompting import linkify_artifact_references
 
