@@ -116,6 +116,7 @@ def test_cli_writes_github_actions_report_and_outputs_path(monkeypatch, tmp_path
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path / "runner-temp"))
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
     runner = CliRunner()
     result = runner.invoke(cli, ["--verbose", "go", "test", "./..."])
@@ -125,3 +126,43 @@ def test_cli_writes_github_actions_report_and_outputs_path(monkeypatch, tmp_path
     summary_text = summary_file.read_text(encoding="utf-8")
     assert "## failure-analyzer Report" in summary_text
     assert "## Summary\nreport body" in summary_text
+
+
+def test_cli_writes_missing_credentials_summary_in_github_actions(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    async def fake_run_test_command(*args, **kwargs):
+        return make_result(exit_code=3)
+
+    async def fake_analyze_failure(*args, **kwargs):
+        raise AssertionError("analysis should be skipped when credentials are missing")
+
+    output_file = tmp_path / "github_output.txt"
+    summary_file = tmp_path / "step_summary.md"
+
+    monkeypatch.setattr("failure_analyzer.cli.run_test_command", fake_run_test_command)
+    monkeypatch.setattr("failure_analyzer.cli.analyze_failure", fake_analyze_failure)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    monkeypatch.delenv("FAILURE_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--verbose", "go", "test", "./..."])
+    assert result.exit_code == 3
+    assert "Analyzer skipped: no supported provider credentials were configured." in result.output
+    assert "fallback report" not in result.output.lower()
+    assert not output_file.exists()
+
+    summary_text = summary_file.read_text(encoding="utf-8")
+    assert "## failure-analyzer setup required" in summary_text
+    assert "`OPENAI_API_KEY`" in summary_text
+    assert "`FAILURE_ANALYZER_OPENAI_API_KEY`" in summary_text

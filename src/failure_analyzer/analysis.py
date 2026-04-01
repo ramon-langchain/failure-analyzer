@@ -17,6 +17,28 @@ DEFAULT_OPENAI_MODEL = "openai:gpt-5.4-mini"
 DEFAULT_ANTHROPIC_MODEL = "anthropic:claude-sonnet-4-6"
 DEFAULT_GOOGLE_MODEL = "google_genai:gemini-3.1-flash-lite-preview"
 DEFAULT_VERTEX_MODEL = "google_vertexai:gemini-3.1-flash-lite-preview"
+OPENAI_SECRET_NAMES = (
+    "FAILURE_ANALYZER_OPENAI_API_KEY",
+    "OPENAI_API_KEY",
+)
+ANTHROPIC_SECRET_NAMES = (
+    "FAILURE_ANALYZER_ANTHROPIC_API_KEY",
+    "ANTHROPIC_API_KEY",
+)
+GOOGLE_SECRET_NAMES = (
+    "FAILURE_ANALYZER_GOOGLE_API_KEY",
+    "GOOGLE_API_KEY",
+)
+VERTEX_SECRET_NAMES = (
+    "FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_PROJECT",
+)
+SUPPORTED_SECRET_NAMES = (
+    *OPENAI_SECRET_NAMES,
+    *ANTHROPIC_SECRET_NAMES,
+    *GOOGLE_SECRET_NAMES,
+    *VERTEX_SECRET_NAMES,
+)
 
 ANALYSIS_SYSTEM_PROMPT = dedent(
     """\
@@ -68,6 +90,33 @@ def resolve_model(model: str | None) -> str:
 def _get_env(name: str) -> str | None:
     """Read prefixed failure-analyzer env vars before the default provider vars."""
     return os.environ.get(f"FAILURE_ANALYZER_{name}") or os.environ.get(name)
+
+
+def has_any_provider_credentials() -> bool:
+    """Return True when any supported provider credential is configured."""
+    return any(os.environ.get(name) for name in SUPPORTED_SECRET_NAMES)
+
+
+def build_missing_credentials_summary() -> str:
+    """Return a short GitHub Actions summary for missing provider credentials."""
+    secret_list = "\n".join(f"- `{name}`" for name in SUPPORTED_SECRET_NAMES)
+    return dedent(
+        f"""\
+        ## failure-analyzer setup required
+
+        No supported model credentials were configured for this workflow run.
+
+        Add one repository or organization Actions secret with one of these exact names:
+
+        {secret_list}
+
+        Where to add it:
+        1. Open the caller repository on GitHub.
+        2. Go to `Settings` -> `Secrets and variables` -> `Actions`.
+        3. Create a repository secret with one of the names above.
+        4. Re-run this workflow.
+        """
+    )
 
 
 def truncate_text(text: str, *, max_bytes: int) -> tuple[str, bool]:

@@ -8,7 +8,12 @@ from pathlib import Path
 import click
 from dotenv import load_dotenv
 
-from failure_analyzer.analysis import analyze_failure, build_fallback_report
+from failure_analyzer.analysis import (
+    analyze_failure,
+    build_fallback_report,
+    build_missing_credentials_summary,
+    has_any_provider_credentials,
+)
 from failure_analyzer.github_actions import (
     append_step_summary,
     default_report_path,
@@ -33,33 +38,47 @@ async def _async_main(
     if result.exit_code == 0:
         return 0
 
+    missing_credentials_summary = None
+    if is_github_actions() and not has_any_provider_credentials():
+        missing_credentials_summary = build_missing_credentials_summary()
+
     was_streamed = False
-    try:
-        analysis = await analyze_failure(
-            result,
-            repo_root=work_dir,
-            model=model,
-            max_output_bytes=max_output_bytes,
-            enable_shell_analysis=enable_shell_analysis,
-        )
-        report = analysis.report_markdown
-        was_streamed = analysis.was_streamed
-        if analysis.used_truncation and verbose:
-            click.echo("Analyzer input was truncated to respect --max-output-bytes.", err=True)
-    except Exception as exc:
+    if missing_credentials_summary is None:
+        try:
+            analysis = await analyze_failure(
+                result,
+                repo_root=work_dir,
+                model=model,
+                max_output_bytes=max_output_bytes,
+                enable_shell_analysis=enable_shell_analysis,
+            )
+            report = analysis.report_markdown
+            was_streamed = analysis.was_streamed
+            if analysis.used_truncation and verbose:
+                click.echo("Analyzer input was truncated to respect --max-output-bytes.", err=True)
+        except Exception as exc:
+            if verbose:
+                click.echo(f"Analyzer failed: {type(exc).__name__}: {exc}", err=True)
+            report = build_fallback_report(result, exc)
+    else:
+        report = missing_credentials_summary
         if verbose:
-            click.echo(f"Analyzer failed: {type(exc).__name__}: {exc}", err=True)
-        report = build_fallback_report(result, exc)
+            click.echo(
+                "Analyzer skipped: no supported provider credentials were configured. "
+                "Writing setup instructions to the GitHub Actions summary.",
+                err=True,
+            )
 
     github_report_handled = False
     if is_github_actions():
-        if report_file is None:
+        if report_file is None and missing_credentials_summary is None:
             report_file = default_report_path()
-        report_file.parent.mkdir(parents=True, exist_ok=True)
-        report_file.write_text(report, encoding="utf-8")
-        github_report_handled = True
+        if report_file is not None:
+            report_file.parent.mkdir(parents=True, exist_ok=True)
+            report_file.write_text(report, encoding="utf-8")
+            github_report_handled = True
 
-        exported = export_report_path(report_file)
+        exported = export_report_path(report_file) if report_file is not None else False
         summarized = append_step_summary(report)
         if verbose:
             if exported:
@@ -67,11 +86,12 @@ async def _async_main(
                     f"GitHub Actions report output set: failure_analyzer_report_path={report_file}",
                     err=True,
                 )
-            click.echo(f"GitHub Actions report file: {report_file}", err=True)
+            if report_file is not None:
+                click.echo(f"GitHub Actions report file: {report_file}", err=True)
             if summarized:
                 click.echo("GitHub Actions step summary updated.", err=True)
 
-    if not was_streamed:
+    if not was_streamed and missing_credentials_summary is None:
         click.echo("", err=True)
         click.echo(report, err=True)
 
