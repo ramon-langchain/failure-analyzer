@@ -27,6 +27,11 @@ on:
         required: false
         default: ""
         type: string
+      flags:
+        description: Optional internal failure-analyzer flags, for example nopreserveexitcode.
+        required: false
+        default: ""
+        type: string
     secrets:
       OPENAI_API_KEY:
         required: false
@@ -44,10 +49,6 @@ on:
         required: false
       FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT:
         required: false
-
-permissions:
-  actions: read
-  contents: read
 
 jobs:
   analyze:
@@ -95,6 +96,7 @@ jobs:
         shell: bash
         env:
           FAILURE_ANALYZER_COMMAND: ${{ inputs.command }}
+          FAILURE_ANALYZER_FLAGS: ${{ inputs.flags }}
           FAILURE_ANALYZER_MODEL: ${{ inputs.model }}
           FAILURE_ANALYZER_CAN_READ_ACTIONS: ${{ steps.gh_access.outputs.can_read_actions }}
           FAILURE_ANALYZER_FILES_BASE: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/

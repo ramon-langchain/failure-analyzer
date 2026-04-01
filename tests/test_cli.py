@@ -4,7 +4,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from failure_analyzer.cli import cli
+from failure_analyzer.cli import FLAGS_ENV_VAR, NO_PRESERVE_EXIT_FLAG, cli
 from failure_analyzer.github_actions import REPORT_OUTPUT_NAME
 from failure_analyzer.models import AnalysisResult, TestRunResult
 
@@ -110,6 +110,28 @@ def test_cli_emits_fallback_report_when_analysis_fails(monkeypatch) -> None:
     assert "Analyzer failed: RuntimeError: boom" in result.output
     assert "fallback report" in result.output.lower()
     assert "## Run Context" in result.output
+
+
+def test_cli_can_disable_exit_code_preservation(monkeypatch) -> None:
+    async def fake_run_test_command(*args, **kwargs):
+        return make_result(exit_code=5)
+
+    async def fake_analyze_failure(*args, **kwargs):
+        return AnalysisResult(
+            report_markdown="## Summary\nreport body",
+            used_truncation=False,
+            was_streamed=False,
+        )
+
+    monkeypatch.setattr("failure_analyzer.cli.run_test_command", fake_run_test_command)
+    monkeypatch.setattr("failure_analyzer.cli.analyze_failure", fake_analyze_failure)
+    monkeypatch.setenv(FLAGS_ENV_VAR, NO_PRESERVE_EXIT_FLAG)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["go", "test", "./..."])
+    assert result.exit_code == 0
+    assert "Wrapped command exited with 5; returning 0" in result.output
+    assert "## Summary\nreport body" in result.output
 
 
 def test_cli_writes_github_actions_report_and_outputs_path(monkeypatch, tmp_path: Path) -> None:

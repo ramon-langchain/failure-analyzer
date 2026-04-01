@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import click
@@ -28,6 +29,22 @@ from failure_analyzer.prompting import (
 from failure_analyzer.runner import run_test_command
 
 
+FLAGS_ENV_VAR = "FAILURE_ANALYZER_FLAGS"
+NO_PRESERVE_EXIT_FLAG = "nopreserveexitcode"
+
+
+def parse_flags(raw_flags: str | None) -> set[str]:
+    """Parse the internal comma-separated flag env var."""
+    if not raw_flags:
+        return set()
+    return {
+        flag.strip().lower()
+        for chunk in raw_flags.split(",")
+        for flag in [chunk]
+        if flag.strip()
+    }
+
+
 async def _async_main(
     *,
     command: tuple[str, ...],
@@ -39,6 +56,7 @@ async def _async_main(
     verbose: bool,
 ) -> int:
     """Run the wrapped test command and invoke analysis on failures."""
+    parsed_flags = parse_flags(os.environ.get(FLAGS_ENV_VAR))
     result = await run_test_command(command, cwd=work_dir)
     if result.exit_code == 0:
         return 0
@@ -111,6 +129,14 @@ async def _async_main(
     if report_file is not None and not github_report_handled:
         report_file.parent.mkdir(parents=True, exist_ok=True)
         report_file.write_text(report, encoding="utf-8")
+
+    if NO_PRESERVE_EXIT_FLAG in parsed_flags:
+        click.echo(
+            f"[failure-analyzer] Wrapped command exited with {result.exit_code}; returning 0 because "
+            f"{FLAGS_ENV_VAR} includes {NO_PRESERVE_EXIT_FLAG}.",
+            err=True,
+        )
+        return 0
 
     return result.exit_code
 
