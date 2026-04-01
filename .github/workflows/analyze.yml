@@ -12,11 +12,6 @@ on:
         required: false
         default: .
         type: string
-      artifact-name:
-        description: Artifact name for the uploaded failure report.
-        required: false
-        default: failure-analyzer-report
-        type: string
       python-version:
         description: Python version used for the tool runtime.
         required: false
@@ -52,7 +47,6 @@ jobs:
   analyze:
     runs-on: ubuntu-24.04
     outputs:
-      report-path: ${{ steps.analyze.outputs.failure_analyzer_report_path }}
       exit-code: ${{ steps.analyze.outputs.command_exit_code }}
 
     steps:
@@ -98,14 +92,6 @@ jobs:
           status=$?
           echo "command_exit_code=$status" >> "$GITHUB_OUTPUT"
           exit 0
-
-      - name: Upload failure report
-        if: always() && steps.analyze.outputs.failure_analyzer_report_path != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.artifact-name }}
-          path: ${{ steps.analyze.outputs.failure_analyzer_report_path }}
-          if-no-files-found: error
 
       - name: Preserve test exit code
         if: always()

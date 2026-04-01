@@ -37,11 +37,10 @@ If both the `FAILURE_ANALYZER_*` and standard provider names are present, `failu
 Optional inputs:
 
 - `working-directory`
-- `artifact-name`
 - `python-version`
 - `model`
 
-The reusable workflow uploads the Markdown analysis as an artifact automatically and preserves the wrapped command's exit code.
+The reusable workflow writes the Markdown analysis to the GitHub Actions job summary automatically and preserves the wrapped command's exit code.
 
 ## Direct CLI Usage
 
@@ -68,17 +67,10 @@ When `failure-analyzer` detects `GITHUB_ACTIONS=true`, it will:
 - append the report to the GitHub Actions step summary when `GITHUB_STEP_SUMMARY` is available
 - export the report path as the step output `failure_analyzer_report_path` when `GITHUB_OUTPUT` is available
 
-The reusable workflow at [.github/workflows/analyze.yml](/Users/ramon/langchain/failure-analyzer/.github/workflows/analyze.yml) already uploads the report artifact automatically. If you prefer wiring the raw steps yourself, this still works:
+The reusable workflow at [.github/workflows/analyze.yml](/Users/ramon/langchain/failure-analyzer/.github/workflows/analyze.yml) relies on the step summary instead of artifact upload. If you prefer wiring the raw steps yourself, this still works:
 
 ```yaml
 - name: Run tests with analysis
   id: failure_analyzer
   run: uvx --from git+https://github.com/ramon-langchain/failure-analyzer.git failure-analyzer -C . go test ./...
-
-- name: Upload analysis report
-  if: always() && steps.failure_analyzer.outputs.failure_analyzer_report_path != ''
-  uses: actions/upload-artifact@v4
-  with:
-    name: failure-analyzer-report
-    path: ${{ steps.failure_analyzer.outputs.failure_analyzer_report_path }}
 ```
