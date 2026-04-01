@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-
 DEFAULT_LANGSMITH_PROJECT = "failure-analyzer"
 LANGSMITH_KEY_ENV_NAMES = (
     "FAILURE_ANALYZER_LANGSMITH_API_KEY",

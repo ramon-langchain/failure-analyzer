@@ -34,7 +34,7 @@ jobs:
     uses: ramon-langchain/failure-analyzer/.github/workflows/analyze.yml@main
     secrets: inherit
     with:
-      command: go test -json -race -cover -timeout 10s ./...
+      script: go test -json -race -cover -timeout 10s ./...
       go-version: "1.24.13"
       langsmith-project: my-ci-failure-analyzer
       thinking-effort: medium

@@ -3,8 +3,8 @@ name: Analyze Test Failures
 on:
   workflow_call:
     inputs:
-      command:
-        description: Command to run under failure-analyzer.
+      script:
+        description: Bash script to run under failure-analyzer.
         required: true
         type: string
       working-directory:
@@ -43,7 +43,7 @@ on:
         default: ""
         type: string
       allow-rerun:
-        description: Allow the analyzer to rerun the test command or narrowed variants with short timeouts.
+        description: Allow the analyzer to rerun the wrapped script or narrowed variants with short timeouts.
         required: false
         default: false
         type: boolean
@@ -153,7 +153,7 @@ jobs:
           WORKFLOW_SHA: ${{ github.workflow_sha }}
           RUNNER_OS: ${{ runner.os }}
           RUNNER_ARCH: ${{ runner.arch }}
-          COMMAND: ${{ inputs.command }}
+          SCRIPT: ${{ inputs.script }}
           WORKDIR: ${{ inputs.working-directory }}
           PR_NUMBER: ${{ github.event.pull_request.number || '' }}
           CAN_READ_ACTIONS: ${{ steps.gh_access.outputs.can_read_actions }}
@@ -212,7 +212,7 @@ jobs:
                       f"- runner_os: {env('RUNNER_OS')}",
                       f"- runner_arch: {env('RUNNER_ARCH')}",
                       f"- working_directory: {env('WORKDIR')}",
-                      f"- wrapped_command: {env('COMMAND')}",
+                      f"- wrapped_script: {env('SCRIPT')}",
                       f"- can_read_actions_history: {env('CAN_READ_ACTIONS') or 'false'}",
                       f"- can_comment_on_pr: {env('CAN_COMMENT_PR') or 'false'}",
                       "</github_actions_runtime_context>",
@@ -283,7 +283,7 @@ jobs:
         id: analyze
         shell: bash
         env:
-          FAILURE_ANALYZER_COMMAND: ${{ inputs.command }}
+          FAILURE_ANALYZER_SCRIPT: ${{ inputs.script }}
           FAILURE_ANALYZER_DEFER_SUMMARY: "true"
           FAILURE_ANALYZER_FLAGS: ${{ inputs.flags }}
           FAILURE_ANALYZER_MODEL: ${{ inputs.model }}
@@ -329,7 +329,7 @@ jobs:
             "${args[@]}" \
             -C "${{ inputs.working-directory }}" \
             -- \
-            bash -lc "$FAILURE_ANALYZER_COMMAND"
+            bash -lc "$FAILURE_ANALYZER_SCRIPT"
           status=$?
           echo "command_exit_code=$status" >> "$GITHUB_OUTPUT"
           exit 0
@@ -364,9 +364,8 @@ jobs:
           PR_COMMENT_FILE: ${{ steps.analyze.outputs.failure_analyzer_pr_comment_path }}
           ARTIFACT_URL: ${{ steps.upload_artifacts.outputs.artifact-url }}
           ARTIFACT_DIR: ${{ steps.analyze.outputs.failure_analyzer_artifact_dir }}
-          PYTHONPATH: ${{ github.workspace }}/src
         run: |
-          python - "$REPORT_FILE" "$PR_COMMENT_FILE" "$ARTIFACT_URL" "$ARTIFACT_DIR" <<'PY'
+          uv run python - "$REPORT_FILE" "$PR_COMMENT_FILE" "$ARTIFACT_URL" "$ARTIFACT_DIR" <<'PY'
           import pathlib
           import sys
           from failure_analyzer.github_actions import append_step_summary
@@ -399,7 +398,7 @@ jobs:
           COMMENT_FILE: ${{ steps.analyze.outputs.failure_analyzer_pr_comment_path }}
         run: |
           json_file="$RUNNER_TEMP/failure-analyzer-pr-comment.json"
-          python - "$COMMENT_FILE" "$json_file" <<'PY'
+          uv run python - "$COMMENT_FILE" "$json_file" <<'PY'
           import json
           import pathlib
           import sys

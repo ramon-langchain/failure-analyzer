@@ -14,7 +14,6 @@ from textwrap import dedent
 
 from failure_analyzer.models import TestRunResult
 
-
 PROMPT_RESOURCE = "ci_failure_analysis_system.md"
 PR_COMMENT_PROMPT_RESOURCE = "ci_failure_pr_comment_system.md"
 REDACTED_ENV_MARKERS = ("KEY", "API", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
@@ -35,6 +34,7 @@ IMPORTANT_ENV_NAMES = (
     "RUNNER_ARCH",
     "RUNNER_NAME",
     "FAILURE_ANALYZER_MODEL",
+    "FAILURE_ANALYZER_SCRIPT",
     "FAILURE_ANALYZER_COMMAND",
     "FAILURE_ANALYZER_CAN_READ_ACTIONS",
     "FAILURE_ANALYZER_FILES_BASE",

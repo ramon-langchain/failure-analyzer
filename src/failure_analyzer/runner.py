@@ -131,7 +131,7 @@ async def run_test_command(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-    except FileNotFoundError as exc:
+    except FileNotFoundError:
         message = f"Command not found: {command[0]}\n"
         stderr_sink.write(message)
         stderr_sink.flush()

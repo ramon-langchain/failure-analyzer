@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 REPORT_OUTPUT_NAME = "failure_analyzer_report_path"
 PR_COMMENT_OUTPUT_NAME = "failure_analyzer_pr_comment_path"
 ARTIFACT_DIR_OUTPUT_NAME = "failure_analyzer_artifact_dir"

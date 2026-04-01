@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import difflib
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from failure_analyzer.models import TestRunResult
 from failure_analyzer.prompting import resolve_repo_relative_path
-
 
 SOURCE_REF_PATTERN = re.compile(
     r"(?P<tick>`)?(?P<path>(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+|/[A-Za-z0-9._/\-]+(?:\.[A-Za-z0-9._-]+)):(?P<line>\d+)(?:-(?P<end_line>\d+))?(?P=tick)?"
@@ -467,6 +466,68 @@ def format_symbol_link_feedback(reminder: SymbolLinkReminder, report_path: Path)
         "If any listed item is not actually a code symbol, or you cannot locate it confidently, you may leave "
         "the report unchanged. Do not rewrite unrelated parts of the report."
     )
+
+
+def format_repair_feedback(
+    validation: ValidationResult,
+    reminder: SymbolLinkReminder,
+    report_path: Path,
+) -> str:
+    """Build one combined repair prompt with all currently known feedback."""
+    current_report = report_path.read_text(encoding="utf-8") if report_path.exists() else "<missing>"
+    sections = [
+        f"The Markdown report at `{report_path}` needs one combined cleanup pass.",
+        "",
+        "Current report contents:",
+        "```markdown",
+        current_report,
+        "```",
+        "",
+        "Edit that file in place. Re-read the current report file before editing it. "
+        "Make the smallest possible fixes and avoid broad rewrites. "
+        "Prefer one precise edit per problem.",
+        "",
+    ]
+    if validation.issues:
+        issue_lines = "\n".join(
+            f"- `{issue.reference}`: {issue.reason}"
+            for issue in validation.issues
+        )
+        sections.extend(
+            [
+                "Hard validation errors that must be fixed:",
+                issue_lines,
+                "",
+            ]
+        )
+    if reminder.needed:
+        symbol_list = ", ".join(f"`{symbol}`" for symbol in reminder.symbols)
+        sections.extend(
+            [
+                "Optional symbol-link improvements:",
+                (
+                    "The report also mentions likely code symbols without defining locations: "
+                    f"{symbol_list}."
+                ),
+                (
+                    "If these are real code symbols and you can locate them confidently, add their "
+                    "defining source locations using the preferred format `SymbolName` "
+                    "(`path/to/file.ext:123`). If any listed item is not actually a code symbol, "
+                    "or you cannot locate it confidently, you may leave it unchanged."
+                ),
+                "",
+            ]
+        )
+    sections.extend(
+        [
+            "Keep the report in GitHub-flavored Markdown.",
+            "Use plain repo-relative source references like `path/to/file.go:55` or `path/to/file.go:55-70`.",
+            "For validated source excerpts, use fences like ```go path/to/file.go#L55-L70.",
+            "For validated runtime log excerpts, use fences like ```logs timed-output.log:12-18.",
+            "If you cannot support a reference, remove or rewrite it rather than leaving it invalid.",
+        ]
+    )
+    return "\n".join(sections)
 
 
 def degrade_invalid_markdown(markdown: str, validation: ValidationResult) -> str:

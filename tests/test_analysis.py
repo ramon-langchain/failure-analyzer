@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import io
-from pathlib import Path
 import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -586,12 +586,6 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
     class FakeFilesystemBackend:
         def __init__(self, **_: object) -> None:
             pass
-
-    class FakeLocalShellBackend(FakeFilesystemBackend):
-        pass
-
-    class FakeLocalShellBackend(FakeFilesystemBackend):
-        pass
 
     class FakeLocalShellBackend(FakeFilesystemBackend):
         pass

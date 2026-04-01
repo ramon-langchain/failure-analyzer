@@ -10,19 +10,19 @@ import click
 from dotenv import load_dotenv
 
 from failure_analyzer.analysis import (
+    SUPPORTED_SECRET_NAMES,
     analyze_failure,
     build_fallback_report,
     generate_pr_comment,
-    SUPPORTED_SECRET_NAMES,
 )
 from failure_analyzer.github_actions import (
     append_step_summary,
     default_artifact_dir,
-    default_report_path,
     default_pr_comment_path,
+    default_report_path,
     export_artifact_dir,
-    export_report_path,
     export_pr_comment_path,
+    export_report_path,
     is_github_actions,
     should_defer_step_summary,
 )
@@ -31,12 +31,10 @@ from failure_analyzer.prompting import (
     build_missing_credentials_summary,
     build_run_context_markdown,
     has_any_provider_credentials,
-    linkify_artifact_references,
     linkify_report_markdown,
 )
 from failure_analyzer.runner import run_test_command
 from failure_analyzer.tracing import configure_langsmith_tracing
-
 
 FLAGS_ENV_VAR = "FAILURE_ANALYZER_FLAGS"
 NO_PRESERVE_EXIT_FLAG = "nopreserveexitcode"

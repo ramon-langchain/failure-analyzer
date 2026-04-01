@@ -7,9 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 from textwrap import dedent
-from typing import IO
-from typing import Any
-from typing import cast
+from typing import IO, Any, cast
 
 from langchain_openai import ChatOpenAI
 

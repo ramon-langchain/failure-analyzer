@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 CONTEXT_FILE_ENV_VAR = "FAILURE_ANALYZER_CONTEXT_FILE"
 
 

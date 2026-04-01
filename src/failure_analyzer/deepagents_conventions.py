@@ -7,8 +7,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-
 AGENT_NAME_ENV_VAR = "FAILURE_ANALYZER_AGENT_NAME"
+DISABLE_GLOBAL_SKILLS_ENV_VAR = "FAILURE_ANALYZER_DISABLE_GLOBAL_SKILLS"
 DEFAULT_AGENT_NAME = "failure-analyzer"
 _VALID_AGENT_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\s]+$")
 
@@ -65,14 +65,29 @@ def discover_skill_sources(
 ) -> list[str]:
     """Discover Deep Agents skill directories in CLI-compatible precedence order."""
     home = (home_dir or Path.home()).expanduser().resolve()
-    candidates = [
-        home / ".deepagents" / agent_name / "skills",
-        home / ".agents" / "skills",
-        project_root / ".deepagents" / "skills",
-        project_root / ".agents" / "skills",
-        home / ".claude" / "skills",
-        project_root / ".claude" / "skills",
-    ]
+    disable_global_skills = os.environ.get(DISABLE_GLOBAL_SKILLS_ENV_VAR, "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    candidates: list[Path] = []
+    if not disable_global_skills:
+        candidates.extend(
+            [
+                home / ".deepagents" / agent_name / "skills",
+                home / ".agents" / "skills",
+            ]
+        )
+    candidates.extend(
+        [
+            project_root / ".deepagents" / "skills",
+            project_root / ".agents" / "skills",
+        ]
+    )
+    if not disable_global_skills:
+        candidates.append(home / ".claude" / "skills")
+    candidates.append(project_root / ".claude" / "skills")
     return [str(path) for path in candidates if path.exists() and path.is_dir()]
 
 

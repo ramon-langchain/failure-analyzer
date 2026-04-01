@@ -10,15 +10,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Any
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
-
 DEFAULT_COMMAND = (
-    'set -o pipefail && mkdir -p "$FAILURE_ANALYZER_OUTPUT_DIR" && '
     'go test -json -race -cover -timeout 10s ./... '
-    '| tee "$FAILURE_ANALYZER_OUTPUT_DIR/go-test.json"'
+    '> "$FAILURE_ANALYZER_OUTPUT_DIR/go-test.json"'
 )
 DEFAULT_WORKDIR = "examples/go-ci-demo"
 DEFAULT_FLAGS = "nopreserveexitcode"
@@ -57,7 +55,7 @@ def build_invocation_context(
     repo_root: Path,
     repository: str,
     server_url: str,
-    command: str,
+    script: str,
     working_directory: str,
     can_read_actions: bool,
     can_comment_pr: bool,
@@ -98,7 +96,7 @@ def build_invocation_context(
         f"- runner_os: {env['RUNNER_OS']}",
         f"- runner_arch: {env['RUNNER_ARCH']}",
         f"- working_directory: {working_directory}",
-        f"- wrapped_command: {command}",
+        f"- wrapped_script: {script}",
         f"- can_read_actions_history: {'true' if can_read_actions else 'false'}",
         f"- can_comment_on_pr: {'true' if can_comment_pr else 'false'}",
         "</github_actions_runtime_context>",
@@ -156,9 +154,9 @@ def main() -> int:
         description="Run failure-analyzer locally with a GitHub Actions-like environment.",
     )
     parser.add_argument(
-        "--command",
+        "--script",
         default=DEFAULT_COMMAND,
-        help=f"Wrapped test command. Default: {DEFAULT_COMMAND!r}",
+        help=f"Wrapped test script. Default: {DEFAULT_COMMAND!r}",
     )
     parser.add_argument(
         "--working-directory",
@@ -222,15 +220,17 @@ def main() -> int:
             "RUNNER_TEMP": str(runner_temp),
             "GITHUB_OUTPUT": str(github_output),
             "GITHUB_STEP_SUMMARY": str(github_summary),
-            "FAILURE_ANALYZER_COMMAND": parsed.command,
+            "FAILURE_ANALYZER_SCRIPT": parsed.script,
             "FAILURE_ANALYZER_DEFER_SUMMARY": "true",
             "FAILURE_ANALYZER_FLAGS": parsed.flags,
             "FAILURE_ANALYZER_FILES_BASE": f"{server_url}/{repository}/blob/{sha}/",
             "FAILURE_ANALYZER_OUTPUT_DIR": str(runner_temp / "failure-analyzer" / "artifacts"),
             "FAILURE_ANALYZER_RUN_URL": run_url,
             "FAILURE_ANALYZER_CONTEXT_FILE": str(context_file),
+            "FAILURE_ANALYZER_DISABLE_GLOBAL_SKILLS": "true",
         }
     )
+    Path(env["FAILURE_ANALYZER_OUTPUT_DIR"]).mkdir(parents=True, exist_ok=True)
 
     can_read_actions = detect_actions_read_access(repository, env)
     env["FAILURE_ANALYZER_CAN_READ_ACTIONS"] = "true" if can_read_actions else "false"
@@ -242,7 +242,7 @@ def main() -> int:
         repo_root=repo_root,
         repository=repository,
         server_url=server_url,
-        command=parsed.command,
+        script=parsed.script,
         working_directory=parsed.working_directory,
         can_read_actions=can_read_actions,
         can_comment_pr=False,
@@ -258,7 +258,7 @@ def main() -> int:
         "--",
         "bash",
         "-lc",
-        parsed.command,
+        parsed.script,
     ]
     print(f"[local-gha] temp root: {temp_root}", file=sys.stderr)
     print(f"[local-gha] running: {' '.join(cmd)}", file=sys.stderr)
