@@ -17,6 +17,7 @@ jobs:
     secrets: inherit
     with:
       command: go test ./...
+      go-version: "1.24.13"
 ```
 
 Inside the reusable workflow, `failure-analyzer` is installed from the same commit as the workflow itself, so the workflow definition and tool code stay in sync.
@@ -37,12 +38,15 @@ If both the `FAILURE_ANALYZER_*` and standard provider names are present, `failu
 Optional inputs:
 
 - `working-directory`
+- `go-version`
 - `python-version`
 - `model`
 
 The reusable workflow writes the Markdown analysis to the GitHub Actions job summary automatically and preserves the wrapped command's exit code.
 
 This repo also includes a manual demo workflow at [.github/workflows/example-go-ci-demo.yml](/Users/ramon/langchain/failure-analyzer/.github/workflows/example-go-ci-demo.yml) that runs the intentionally failing Go sample in `examples/go-ci-demo`. Add one of the supported provider secrets to this repository, then trigger `Example Go CI Demo` from the Actions tab to see the summary output end to end.
+
+When `go-version` is set, the reusable workflow installs Go with `actions/setup-go` and enables Go module caching using `${working-directory}/go.sum`. uv caching is enabled explicitly through `astral-sh/setup-uv`.
 
 ## Direct CLI Usage
 

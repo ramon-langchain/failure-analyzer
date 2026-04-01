@@ -12,6 +12,11 @@ on:
         required: false
         default: .
         type: string
+      go-version:
+        description: Optional Go version. When set, the workflow installs Go and enables Go module caching.
+        required: false
+        default: ""
+        type: string
       python-version:
         description: Python version used for the tool runtime.
         required: false
@@ -58,8 +63,17 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
 
+      - name: Set up Go
+        if: ${{ inputs.go-version != '' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
 
       - name: Run failure-analyzer
         id: analyze
