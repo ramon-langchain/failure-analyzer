@@ -64,6 +64,7 @@ def test_system_prompt_is_loaded_from_resource_file() -> None:
     assert "O` means stdout" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "FAILURE_ANALYZER_FILES_BASE" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "do not invent file URLs" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "do not construct Markdown links yourself" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "FAILURE_ANALYZER_CAN_READ_ACTIONS=true" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "gh" in analysis.ANALYSIS_SYSTEM_PROMPT
 
@@ -103,8 +104,9 @@ def test_linkify_report_markdown_rewrites_file_references() -> None:
     )
     report = (
         "## Evidence\n"
-        "- The failure comes from pricing/pricing.go:17 and pricing/pricing_test.go:55.\n"
+        "- The failure comes from pricing/pricing.go:17 and `pricing/pricing_test.go:55`.\n"
         "- Absolute path: /repo/examples/go-ci-demo/pricing/pricing.go:23.\n"
+        "- Range: pricing/pricing.go:23-36.\n"
         "```text\npricing/pricing.go:17\n```\n"
     )
 
@@ -113,6 +115,7 @@ def test_linkify_report_markdown_rewrites_file_references() -> None:
     assert "[examples/go-ci-demo/pricing/pricing.go:17](https://github.com/example/repo/blob/abc123/examples/go-ci-demo/pricing/pricing.go#L17)" in linked
     assert "[examples/go-ci-demo/pricing/pricing_test.go:55](https://github.com/example/repo/blob/abc123/examples/go-ci-demo/pricing/pricing_test.go#L55)" in linked
     assert "[examples/go-ci-demo/pricing/pricing.go:23](https://github.com/example/repo/blob/abc123/examples/go-ci-demo/pricing/pricing.go#L23)" in linked
+    assert "[examples/go-ci-demo/pricing/pricing.go:23-36](https://github.com/example/repo/blob/abc123/examples/go-ci-demo/pricing/pricing.go#L23-L36)" in linked
     assert "```text\npricing/pricing.go:17\n```" in linked
 
 

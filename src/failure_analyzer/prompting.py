@@ -48,7 +48,7 @@ IMPORTANT_ENV_NAMES = (
 )
 _CODE_FENCE_SPLIT_PATTERN = re.compile(r"(```.*?```)", re.DOTALL)
 _FILE_LINE_PATTERN = re.compile(
-    r"(?P<tick>`)?(?P<path>(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+|/[A-Za-z0-9._/\-]+(?:\.[A-Za-z0-9._-]+)):(?P<line>\d+)(?P=tick)?"
+    r"(?P<tick>`)?(?P<path>(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+|/[A-Za-z0-9._/\-]+(?:\.[A-Za-z0-9._-]+)):(?P<line>\d+)(?:-(?P<end_line>\d+))?(?P=tick)?"
 )
 
 
@@ -229,12 +229,17 @@ def _linkify_file_references(text: str, result: TestRunResult) -> str:
 
         raw_path = match.group("path")
         line = match.group("line")
+        end_line = match.group("end_line")
         repo_relative = _candidate_repo_relative_path(raw_path, result)
         if repo_relative is None:
             return match.group(0)
 
         label = f"{repo_relative}:{line}"
-        return f"[{label}]({files_base}{repo_relative}#L{line})"
+        anchor = f"#L{line}"
+        if end_line:
+            label = f"{label}-{end_line}"
+            anchor = f"{anchor}-L{end_line}"
+        return f"[{label}]({files_base}{repo_relative}{anchor})"
 
     return _FILE_LINE_PATTERN.sub(replace, text)
 

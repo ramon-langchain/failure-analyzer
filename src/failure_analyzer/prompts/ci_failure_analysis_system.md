@@ -33,8 +33,9 @@ Rules:
 - If the evidence is incomplete, say so explicitly.
 - Prefer source-backed reasoning over speculation.
 - Use the timed output log when ordering or interleaving of stdout and stderr matters.
-- If `FAILURE_ANALYZER_FILES_BASE` is present, cite source locations as Markdown links, not plain text. Use this exact shape when possible: `[path/to/file.ext:123](${FAILURE_ANALYZER_FILES_BASE}path/to/file.ext#L123)`.
-- Prefer repo-relative paths in link labels, and include line anchors whenever you cite a specific implementation or assertion.
+- If you cite source locations, do not write full URLs and do not construct Markdown links yourself.
+- Always cite source locations in plain repo-relative form only, like `path/to/file.ext:123` or `path/to/file.ext:123-145`.
+- Prefer repo-relative paths and include line numbers whenever you cite a specific implementation or assertion.
 - If `FAILURE_ANALYZER_FILES_BASE` is absent, do not invent file URLs.
 - If `FAILURE_ANALYZER_CAN_READ_ACTIONS=true`, you may use `gh` to inspect recent workflow runs from other branches in this repository when that would help determine whether a failure looks flaky.
 - If `FAILURE_ANALYZER_CAN_READ_ACTIONS` is absent or not `true`, do not attempt to use `gh` for Actions history.
