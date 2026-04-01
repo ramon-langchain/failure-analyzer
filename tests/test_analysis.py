@@ -119,6 +119,23 @@ def test_linkify_report_markdown_rewrites_file_references() -> None:
     assert "```text\npricing/pricing.go:17\n```" in linked
 
 
+def test_linkify_artifact_references_rewrites_plain_artifact_markers() -> None:
+    from failure_analyzer.prompting import linkify_artifact_references
+
+    markdown = (
+        "See artifact:logs/failure.log and `artifact:notes/repro.md`.\n"
+        "```text\nartifact:logs/raw.log\n```\n"
+    )
+    linked = linkify_artifact_references(
+        markdown,
+        "https://github.com/example/repo/actions/runs/123/artifacts/999",
+    )
+
+    assert "[artifact:logs/failure.log](https://github.com/example/repo/actions/runs/123/artifacts/999)" in linked
+    assert "[artifact:notes/repro.md](https://github.com/example/repo/actions/runs/123/artifacts/999)" in linked
+    assert "```text\nartifact:logs/raw.log\n```" in linked
+
+
 def test_resolve_model_defaults_to_gpt_5_4_mini(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)

@@ -111,12 +111,14 @@ jobs:
         shell: bash
         env:
           FAILURE_ANALYZER_COMMAND: ${{ inputs.command }}
+          FAILURE_ANALYZER_DEFER_SUMMARY: "true"
           FAILURE_ANALYZER_FLAGS: ${{ inputs.flags }}
           FAILURE_ANALYZER_MODEL: ${{ inputs.model }}
           FAILURE_ANALYZER_CAN_READ_ACTIONS: ${{ steps.gh_access.outputs.can_read_actions }}
           FAILURE_ANALYZER_CAN_COMMENT_PR: ${{ steps.pr_comment_access.outputs.can_comment_pr }}
           FAILURE_ANALYZER_PR_NUMBER: ${{ github.event.pull_request.number || '' }}
           FAILURE_ANALYZER_FILES_BASE: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/
+          FAILURE_ANALYZER_OUTPUT_DIR: ${{ runner.temp }}/failure-analyzer/artifacts
           FAILURE_ANALYZER_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           FAILURE_ANALYZER_OPENAI_API_KEY: ${{ secrets.FAILURE_ANALYZER_OPENAI_API_KEY }}
           FAILURE_ANALYZER_ANTHROPIC_API_KEY: ${{ secrets.FAILURE_ANALYZER_ANTHROPIC_API_KEY }}
@@ -133,6 +135,7 @@ jobs:
           fi
 
           set +e
+          mkdir -p "$FAILURE_ANALYZER_OUTPUT_DIR"
           uvx --python "${{ inputs.python-version }}" \
             --from "git+https://github.com/ramon-langchain/failure-analyzer.git@${{ github.workflow_sha }}" \
             failure-analyzer \
@@ -143,6 +146,59 @@ jobs:
           status=$?
           echo "command_exit_code=$status" >> "$GITHUB_OUTPUT"
           exit 0
+
+      - name: Check analyzer artifact directory
+        id: artifact_check
+        if: always()
+        shell: bash
+        env:
+          ARTIFACT_DIR: ${{ steps.analyze.outputs.failure_analyzer_artifact_dir }}
+        run: |
+          if [ -n "$ARTIFACT_DIR" ] && [ -d "$ARTIFACT_DIR" ] && find "$ARTIFACT_DIR" -type f | grep -q .; then
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload analyzer artifacts
+        id: upload_artifacts
+        if: always() && steps.artifact_check.outputs.has_files == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-analyzer-artifacts
+          path: ${{ steps.analyze.outputs.failure_analyzer_artifact_dir }}
+          if-no-files-found: error
+
+      - name: Finalize report and summary
+        if: always() && steps.analyze.outputs.failure_analyzer_report_path != ''
+        shell: bash
+        env:
+          REPORT_FILE: ${{ steps.analyze.outputs.failure_analyzer_report_path }}
+          PR_COMMENT_FILE: ${{ steps.analyze.outputs.failure_analyzer_pr_comment_path }}
+          ARTIFACT_URL: ${{ steps.upload_artifacts.outputs.artifact-url }}
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: |
+          python - "$REPORT_FILE" "$PR_COMMENT_FILE" "$ARTIFACT_URL" <<'PY'
+          import pathlib
+          import sys
+          from failure_analyzer.github_actions import append_step_summary
+          from failure_analyzer.prompting import linkify_artifact_references
+
+          report_path = pathlib.Path(sys.argv[1])
+          pr_comment_path = pathlib.Path(sys.argv[2]) if sys.argv[2] else None
+          artifact_url = sys.argv[3] or None
+
+          report = report_path.read_text(encoding="utf-8")
+          report = linkify_artifact_references(report, artifact_url)
+          report_path.write_text(report, encoding="utf-8")
+
+          if pr_comment_path and pr_comment_path.exists():
+              comment = pr_comment_path.read_text(encoding="utf-8")
+              comment = linkify_artifact_references(comment, artifact_url)
+              pr_comment_path.write_text(comment, encoding="utf-8")
+
+          append_step_summary(report)
+          PY
 
       - name: Post PR comment
         if: always() && steps.pr_comment_access.outputs.can_comment_pr == 'true' && steps.analyze.outputs.failure_analyzer_pr_comment_path != ''

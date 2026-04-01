@@ -83,6 +83,8 @@ The reusable workflow writes the full Markdown analysis to the GitHub Actions jo
 
 When the caller workflow is running on a pull request and grants `issues: write`, `failure-analyzer` also generates a separate one-paragraph PR comment and posts it to the PR thread. That short comment links back to the full workflow run summary.
 
+When `failure-analyzer` runs in GitHub Actions, it also exposes an artifact output directory to the agent through `FAILURE_ANALYZER_OUTPUT_DIR`. The agent can copy or generate helpful files there, mention them in the report as `artifact:path/to/file.ext`, and the workflow will upload that directory as a GitHub Actions artifact and rewrite those references into real artifact links in the final summary and PR comment.
+
 This repo also includes a manual demo workflow at [.github/workflows/example-go-ci-demo.yml](/Users/ramon/langchain/failure-analyzer/.github/workflows/example-go-ci-demo.yml) that runs the intentionally failing Go sample in `examples/go-ci-demo`. Add one of the supported provider secrets to this repository, then trigger `Example Go CI Demo` from the Actions tab to see the summary output end to end.
 
 When `go-version` is set, the reusable workflow installs Go with `actions/setup-go` and enables Go module caching using `${working-directory}/go.sum`. uv caching is enabled explicitly through `astral-sh/setup-uv`.

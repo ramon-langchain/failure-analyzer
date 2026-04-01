@@ -37,6 +37,7 @@ IMPORTANT_ENV_NAMES = (
     "FAILURE_ANALYZER_COMMAND",
     "FAILURE_ANALYZER_CAN_READ_ACTIONS",
     "FAILURE_ANALYZER_FILES_BASE",
+    "FAILURE_ANALYZER_OUTPUT_DIR",
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
     "GOOGLE_API_KEY",
@@ -49,6 +50,9 @@ IMPORTANT_ENV_NAMES = (
 _CODE_FENCE_SPLIT_PATTERN = re.compile(r"(```.*?```)", re.DOTALL)
 _FILE_LINE_PATTERN = re.compile(
     r"(?P<tick>`)?(?P<path>(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+|/[A-Za-z0-9._/\-]+(?:\.[A-Za-z0-9._-]+)):(?P<line>\d+)(?:-(?P<end_line>\d+))?(?P=tick)?"
+)
+_ARTIFACT_REF_PATTERN = re.compile(
+    r"(?P<tick>`)?artifact:(?P<path>[A-Za-z0-9._/\-]+)(?P=tick)?"
 )
 
 
@@ -252,6 +256,23 @@ def linkify_report_markdown(report: str, result: TestRunResult) -> str:
     parts = _CODE_FENCE_SPLIT_PATTERN.split(report)
     linked_parts = [
         part if part.startswith("```") else _linkify_file_references(part, result)
+        for part in parts
+    ]
+    return "".join(linked_parts)
+
+
+def linkify_artifact_references(markdown: str, artifact_url: str | None) -> str:
+    """Convert plain artifact:path references into artifact links."""
+    if not markdown.strip() or not artifact_url:
+        return markdown
+
+    def replace(match: re.Match[str]) -> str:
+        label = f"artifact:{match.group('path')}"
+        return f"[{label}]({artifact_url})"
+
+    parts = _CODE_FENCE_SPLIT_PATTERN.split(markdown)
+    linked_parts = [
+        part if part.startswith("```") else _ARTIFACT_REF_PATTERN.sub(replace, part)
         for part in parts
     ]
     return "".join(linked_parts)

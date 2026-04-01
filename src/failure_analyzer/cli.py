@@ -17,17 +17,21 @@ from failure_analyzer.analysis import (
 )
 from failure_analyzer.github_actions import (
     append_step_summary,
+    default_artifact_dir,
     default_report_path,
     default_pr_comment_path,
+    export_artifact_dir,
     export_report_path,
     export_pr_comment_path,
     is_github_actions,
+    should_defer_step_summary,
 )
 from failure_analyzer.prompting import (
     append_run_context,
     build_missing_credentials_summary,
     build_run_context_markdown,
     has_any_provider_credentials,
+    linkify_artifact_references,
     linkify_report_markdown,
 )
 from failure_analyzer.runner import run_test_command
@@ -98,6 +102,8 @@ async def _async_main(
             )
 
     run_context_markdown = ""
+    artifact_dir = default_artifact_dir()
+    artifact_dir.mkdir(parents=True, exist_ok=True)
     if missing_credentials_summary is None:
         report = linkify_report_markdown(report, result)
         if (
@@ -122,6 +128,7 @@ async def _async_main(
 
     github_report_handled = False
     if is_github_actions():
+        export_artifact_dir(artifact_dir)
         if report_file is None and missing_credentials_summary is None:
             report_file = default_report_path()
         if report_file is not None:
@@ -140,7 +147,7 @@ async def _async_main(
             pr_comment_exported = export_pr_comment_path(pr_comment_file)
 
         exported = export_report_path(report_file) if report_file is not None else False
-        summarized = append_step_summary(report)
+        summarized = False if should_defer_step_summary() else append_step_summary(report)
         if verbose:
             if exported:
                 click.echo(

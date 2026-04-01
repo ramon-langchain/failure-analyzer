@@ -5,7 +5,11 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from failure_analyzer.cli import FLAGS_ENV_VAR, NO_PRESERVE_EXIT_FLAG, cli
-from failure_analyzer.github_actions import PR_COMMENT_OUTPUT_NAME, REPORT_OUTPUT_NAME
+from failure_analyzer.github_actions import (
+    ARTIFACT_DIR_OUTPUT_NAME,
+    PR_COMMENT_OUTPUT_NAME,
+    REPORT_OUTPUT_NAME,
+)
 from failure_analyzer.models import AnalysisResult, TestRunResult
 
 
@@ -163,7 +167,9 @@ def test_cli_writes_github_actions_report_and_outputs_path(monkeypatch, tmp_path
     report_text = report_file.read_text(encoding="utf-8")
     assert "## Summary\nreport body" in report_text
     assert "## Run Context" in report_text
-    assert f"{REPORT_OUTPUT_NAME}={report_file}" in output_file.read_text(encoding="utf-8")
+    output_text = output_file.read_text(encoding="utf-8")
+    assert f"{REPORT_OUTPUT_NAME}={report_file}" in output_text
+    assert f"{ARTIFACT_DIR_OUTPUT_NAME}={tmp_path / 'runner-temp' / 'failure-analyzer' / 'artifacts'}" in output_text
     summary_text = summary_file.read_text(encoding="utf-8")
     assert "## failure-analyzer Report" in summary_text
     assert "## Summary\nreport body" in summary_text
@@ -213,6 +219,35 @@ def test_cli_generates_pr_comment_file_in_github_actions(monkeypatch, tmp_path: 
     assert f"{PR_COMMENT_OUTPUT_NAME}={comment_file}" in output_text
 
 
+def test_cli_can_defer_summary_publication(monkeypatch, tmp_path: Path) -> None:
+    async def fake_run_test_command(*args, **kwargs):
+        return make_result(exit_code=4)
+
+    async def fake_analyze_failure(*args, **kwargs):
+        return AnalysisResult(
+            report_markdown="## Summary\nreport body with artifact:logs/failure.log",
+            used_truncation=False,
+            was_streamed=False,
+        )
+
+    output_file = tmp_path / "github_output.txt"
+    summary_file = tmp_path / "step_summary.md"
+
+    monkeypatch.setattr("failure_analyzer.cli.run_test_command", fake_run_test_command)
+    monkeypatch.setattr("failure_analyzer.cli.analyze_failure", fake_analyze_failure)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path / "runner-temp"))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("FAILURE_ANALYZER_DEFER_SUMMARY", "true")
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["go", "test", "./..."])
+    assert result.exit_code == 4
+    assert not summary_file.exists()
+
+
 def test_cli_writes_missing_credentials_summary_in_github_actions(
     monkeypatch,
     tmp_path: Path,
@@ -245,7 +280,9 @@ def test_cli_writes_missing_credentials_summary_in_github_actions(
     assert result.exit_code == 3
     assert "Analyzer skipped: no supported provider credentials were configured." in result.output
     assert "fallback report" not in result.output.lower()
-    assert not output_file.exists()
+    output_text = output_file.read_text(encoding="utf-8")
+    assert REPORT_OUTPUT_NAME not in output_text
+    assert ARTIFACT_DIR_OUTPUT_NAME in output_text
 
     summary_text = summary_file.read_text(encoding="utf-8")
     assert "## failure-analyzer setup required" in summary_text
