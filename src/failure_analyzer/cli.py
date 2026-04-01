@@ -58,6 +58,7 @@ async def _async_main(
     command: tuple[str, ...],
     model: str | None,
     instructions: str | None,
+    allow_rerun: bool,
     work_dir: Path,
     report_file: Path | None,
     max_output_bytes: int,
@@ -102,6 +103,7 @@ async def _async_main(
                 custom_instructions=instructions,
                 max_output_bytes=max_output_bytes,
                 enable_shell_analysis=enable_shell_analysis,
+                allow_rerun=allow_rerun,
             )
             report = analysis.report_markdown
             was_streamed = analysis.was_streamed
@@ -217,6 +219,12 @@ async def _async_main(
     help="Additional system instructions appended as higher-priority overrides.",
 )
 @click.option(
+    "--allow-rerun/--no-allow-rerun",
+    default=False,
+    show_default=True,
+    help="Allow the analyzer to rerun the test command or a narrowed variant with short timeouts.",
+)
+@click.option(
     "-C",
     type=click.Path(path_type=Path, file_okay=False, resolve_path=True),
     default=Path.cwd,
@@ -245,6 +253,7 @@ async def _async_main(
 def cli(
     model: str | None,
     instructions: str | None,
+    allow_rerun: bool,
     c: Path,
     report_file: Path | None,
     max_output_bytes: int,
@@ -261,6 +270,7 @@ def cli(
             command=command,
             model=model,
             instructions=instructions,
+            allow_rerun=allow_rerun,
             work_dir=c,
             report_file=report_file,
             max_output_bytes=max_output_bytes,

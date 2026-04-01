@@ -368,6 +368,7 @@ def linkify_artifact_references(
                                 excerpt,
                             )
                         )
+            return f"`{label}`{suffix}"
         return f"[{label}]({artifact_url}){suffix}"
 
     parts = _CODE_FENCE_SPLIT_PATTERN.split(markdown)

@@ -32,26 +32,36 @@ jobs:
     uses: ramon-langchain/failure-analyzer/.github/workflows/analyze.yml@main
     secrets: inherit
     with:
-      command: go test ./...
+      command: go test -json -race -cover -timeout 10s ./...
       go-version: "1.24.13"
+      allow-rerun: false
       instructions: |
         Focus on flaky-test evidence first.
 ```
 
 Inside the reusable workflow, `failure-analyzer` is installed from the same commit as the workflow itself, so the workflow definition and tool code stay in sync.
 
+Prefer wrapped commands that emit structured or richly annotated output when that is available. For example:
+
+- `go test -json -race -cover ./...` instead of plain `go test ./...`
+- test runners that can emit JSON, JUnit XML, TAP, or similarly structured diagnostics
+
+The analyzer can still work with plain text output, but structured output usually gives it better evidence and clearer timing.
+
 Recommended caller permissions:
 
 ```yaml
 permissions:
   contents: read
+  pull-requests: read
   issues: write
   actions: read
 ```
 
 - `contents: read` is required for checkout.
+- `pull-requests: read` is optional and enables extra pull-request context in the analyzer prompt, such as the PR number, title, submitter, head/base refs, and PR link.
 - `issues: write` is required only if you want `failure-analyzer` to post a short PR comment.
-- `actions: read` is optional and only enables the agent to inspect prior workflow runs to judge flakiness.
+- `actions: read` is optional and enables extra workflow-history context in the analyzer prompt, including previous failed runs for the current PR when that data is available.
 
 If you do not want PR comments or flaky-run inspection, this also works:
 
@@ -80,11 +90,22 @@ Optional inputs:
 - `python-version`
 - `model`
 - `instructions`
+- `allow-rerun`
 - `flags`
+
+`allow-rerun` defaults to `false`. When enabled, the agent may rerun the wrapped test command or a narrowed variant if that will materially improve the diagnosis, but it is instructed to keep those reruns short and to aim to finish within about two minutes total.
 
 The reusable workflow writes the full Markdown analysis to the GitHub Actions job summary automatically and preserves the wrapped command's exit code.
 
 When the caller workflow is running on a pull request and grants `issues: write`, `failure-analyzer` also generates a separate one-paragraph PR comment and posts it to the PR thread. That short comment links back to the full workflow run summary.
+
+The reusable workflow also builds an optional invocation-context file and appends it to the analyzer system prompt. Depending on which GitHub APIs are readable in the current run, that context can include:
+
+- base GitHub Actions runtime metadata like workflow name, run id, ref, sha, actor, runner OS/arch, and run URL
+- pull-request metadata like PR number, title, URL, author, and head/base refs
+- previous failed workflow runs for the same PR head SHA, with links back to those runs
+
+These sections are modular. If the relevant API call is not readable with the current token permissions, that section is simply omitted.
 
 When `failure-analyzer` runs in GitHub Actions, it also exposes an artifact output directory to the agent through `FAILURE_ANALYZER_OUTPUT_DIR`. The agent can copy or generate helpful files there, mention them in the report as `artifact:path/to/file.ext`, and the workflow will upload that directory as a GitHub Actions artifact and rewrite those references into real artifact links in the final summary and PR comment.
 
@@ -97,14 +118,20 @@ When `go-version` is set, the reusable workflow installs Go with `actions/setup-
 One-off usage:
 
 ```bash
-uvx --from git+https://github.com/ramon-langchain/failure-analyzer.git failure-analyzer go test ./...
+uvx --from git+https://github.com/ramon-langchain/failure-analyzer.git failure-analyzer go test -json -race -cover -timeout 10s ./...
 ```
 
 Persistent install:
 
 ```bash
 uv tool install --upgrade --from git+https://github.com/ramon-langchain/failure-analyzer.git failure-analyzer
-failure-analyzer go test ./...
+failure-analyzer go test -json -race -cover -timeout 10s ./...
+```
+
+If you want the analyzer to be allowed to rerun tests briefly during diagnosis:
+
+```bash
+failure-analyzer --allow-rerun go test -json -race -cover -timeout 10s ./...
 ```
 
 The command preserves the wrapped test process exit code. On failures, it prints a Markdown report to stderr and can optionally save the same report with `--report-file`.
@@ -122,5 +149,5 @@ The reusable workflow at [.github/workflows/analyze.yml](/Users/ramon/langchain/
 ```yaml
 - name: Run tests with analysis
   id: failure_analyzer
-  run: uvx --from git+https://github.com/ramon-langchain/failure-analyzer.git failure-analyzer -C . go test ./...
+  run: uvx --from git+https://github.com/ramon-langchain/failure-analyzer.git failure-analyzer -C . go test -json -race -cover -timeout 10s ./...
 ```

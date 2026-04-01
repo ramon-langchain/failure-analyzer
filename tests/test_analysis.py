@@ -8,6 +8,7 @@ import subprocess
 import pytest
 
 from failure_analyzer import analysis
+from failure_analyzer.context_builder import append_invocation_context
 from failure_analyzer.deepagents_conventions import DeepAgentsConventions
 from failure_analyzer.models import TestRunResult
 from failure_analyzer.report_validation import validate_report_markdown
@@ -50,6 +51,7 @@ def test_render_user_prompt_includes_failure_context() -> None:
         repo_root=Path("/repo"),
         max_output_bytes=1024,
         enable_shell_analysis=True,
+        allow_rerun=True,
     )
     prompt, used_truncation = analysis.render_user_prompt(request)
     assert used_truncation is False
@@ -57,6 +59,10 @@ def test_render_user_prompt_includes_failure_context() -> None:
     assert "Exit code: `1`" in prompt
     assert "panic: boom" in prompt
     assert "/tmp/failure-analyzer/timed-output.log" in prompt
+    assert "Timed output log fence format" in prompt
+    assert "```logs timed-output.log:<start>-<end>" in prompt
+    assert "Rerunning tests permitted: yes" in prompt
+    assert "should aim to finish within about two minutes total" in prompt
     assert "OPENAI_API_KEY=<redacted>" in prompt
     assert "Duration: `5000 ms`" in prompt
 
@@ -74,7 +80,8 @@ def test_system_prompt_is_loaded_from_resource_file() -> None:
     assert "gh" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "GitHub-flavored Markdown" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "```go path/to/file.go#L55-L70" in analysis.ANALYSIS_SYSTEM_PROMPT
-    assert "artifact:path/inside/output-dir.ext:12-18" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "```logs timed-output.log:12-18" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "appended `<invocation_context>` section" in analysis.ANALYSIS_SYSTEM_PROMPT
 
 
 def test_pr_comment_prompt_is_loaded_from_resource_file() -> None:
@@ -91,6 +98,32 @@ def test_append_custom_instructions_adds_override_section() -> None:
     assert "<user_override_instructions>" in combined
     assert "supersede any conflicting built-in instructions" in combined
     assert "Prefer logs over code." in combined
+
+
+def test_append_invocation_context_adds_tagged_section() -> None:
+    combined = append_invocation_context(
+        "<base>Prompt</base>",
+        "<github_actions_runtime_context>\n- event_name: pull_request\n</github_actions_runtime_context>",
+    )
+    assert "<invocation_context>" in combined
+    assert "Treat it as additional factual context" in combined
+    assert "<github_actions_runtime_context>" in combined
+
+
+def test_build_analysis_system_prompt_includes_runtime_context(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context_file = tmp_path / "invocation-context.md"
+    context_file.write_text(
+        "<github_actions_runtime_context>\n- event_name: pull_request\n</github_actions_runtime_context>\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAILURE_ANALYZER_CONTEXT_FILE", str(context_file))
+    prompt = analysis.build_analysis_system_prompt("Prefer flaky-history evidence.")
+    assert "<invocation_context>" in prompt
+    assert "<github_actions_runtime_context>" in prompt
+    assert "Prefer flaky-history evidence." in prompt
 
 
 def test_build_run_context_markdown_collapses_full_environment(tmp_path: Path) -> None:
@@ -202,7 +235,7 @@ def test_linkify_artifact_references_rewrites_plain_artifact_markers() -> None:
 
     assert "[artifact:logs/failure.log](https://github.com/example/repo/actions/runs/123/artifacts/999)" in linked
     assert "[artifact:notes/repro.md](https://github.com/example/repo/actions/runs/123/artifacts/999)" in linked
-    assert "[artifact:timed-output.log:2-3](https://github.com/example/repo/actions/runs/123/artifacts/999)" in linked
+    assert "`artifact:timed-output.log:2-3`" in linked
     assert "## Artifact Excerpts" in linked
     assert "l2\nl3" in linked
     assert "```text\nartifact:logs/raw.log\n```" in linked
@@ -226,6 +259,25 @@ def test_validate_report_markdown_accepts_valid_source_and_artifact_refs(tmp_pat
         "See pkg/pricing.go:3-5 and artifact:logs/failure.log and artifact:logs/failure.log:1-1.\n\n"
         "```go pkg/pricing.go#L3-L5\n"
         "func Tax() int {\n\treturn 91\n}\n"
+        "```\n"
+    )
+
+    validation = validate_report_markdown(markdown, result=result, artifact_dir=artifact_dir)
+    assert validation.is_valid is True
+
+
+def test_validate_report_markdown_accepts_valid_log_excerpt_fence(tmp_path: Path) -> None:
+    workspace = tmp_path / "repo"
+    artifact_dir = tmp_path / "artifacts"
+    artifact_file = artifact_dir / "timed-output.log"
+    workspace.mkdir()
+    artifact_dir.mkdir()
+    artifact_file.write_text("l1\nl2\nl3\nl4\n", encoding="utf-8")
+    result = make_result(cwd=workspace, environment={"GITHUB_WORKSPACE": str(workspace)})
+    markdown = (
+        "## Evidence\n"
+        "```logs timed-output.log:2-3\n"
+        "l2\nl3\n"
         "```\n"
     )
 
@@ -257,6 +309,26 @@ def test_validate_report_markdown_rejects_bad_excerpt_and_missing_artifact(tmp_p
     assert any("outside file length" in reason for reason in reasons)
     assert any("artifact does not exist" in reason for reason in reasons)
     assert any("does not exactly match" in reason for reason in reasons)
+
+
+def test_validate_report_markdown_rejects_bad_log_excerpt_fence(tmp_path: Path) -> None:
+    workspace = tmp_path / "repo"
+    artifact_dir = tmp_path / "artifacts"
+    artifact_file = artifact_dir / "timed-output.log"
+    workspace.mkdir()
+    artifact_dir.mkdir()
+    artifact_file.write_text("l1\nl2\nl3\n", encoding="utf-8")
+    result = make_result(cwd=workspace, environment={"GITHUB_WORKSPACE": str(workspace)})
+    markdown = (
+        "## Evidence\n"
+        "```logs timed-output.log:2-4\n"
+        "l2\nl9\n"
+        "```\n"
+    )
+
+    validation = validate_report_markdown(markdown, result=result, artifact_dir=artifact_dir)
+    assert validation.is_valid is False
+    assert any(issue.kind == "log_excerpt_fence" for issue in validation.issues)
 
 
 def test_resolve_model_defaults_to_gpt_5_4_mini(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -455,6 +527,7 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
         custom_instructions="Prefer precise source references.",
         max_output_bytes=1024,
         enable_shell_analysis=False,
+        allow_rerun=False,
         status_sink=sink,
     )
     assert result.report_markdown == "## Summary\nFailure report"
@@ -612,6 +685,7 @@ async def test_analyze_failure_repairs_invalid_report(monkeypatch: pytest.Monkey
         custom_instructions=None,
         max_output_bytes=1024,
         enable_shell_analysis=False,
+        allow_rerun=False,
         status_sink=io.StringIO(),
     )
 

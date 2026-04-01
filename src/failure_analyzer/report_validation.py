@@ -20,6 +20,10 @@ EXCERPT_FENCE_PATTERN = re.compile(
     r"```(?P<language>[A-Za-z0-9_+-]+)\s+(?P<path>[^\s`#]+)#(?:L)?(?P<start>\d+)(?:-L?(?P<end>\d+))?\n(?P<body>.*?)\n```",
     re.DOTALL,
 )
+LOG_EXCERPT_FENCE_PATTERN = re.compile(
+    r"```logs\s+(?P<path>[^\s`:#]+(?:/[^\s`:#]+)*):(?P<start>\d+)(?:-(?P<end>\d+))?\n(?P<body>.*?)\n```",
+    re.DOTALL,
+)
 
 
 @dataclass(slots=True)
@@ -46,6 +50,14 @@ def _read_source_lines(path: Path) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines()
 
 
+def _spans_for(pattern: re.Pattern[str], text: str) -> list[tuple[int, int]]:
+    return [match.span() for match in pattern.finditer(text)]
+
+
+def _inside_spans(index: int, spans: list[tuple[int, int]]) -> bool:
+    return any(start <= index < end for start, end in spans)
+
+
 def validate_report_markdown(
     markdown: str,
     *,
@@ -54,8 +66,14 @@ def validate_report_markdown(
 ) -> ValidationResult:
     """Validate source refs, artifact refs, and excerpt fences in a report."""
     issues: list[ValidationIssue] = []
+    skip_spans = [
+        *_spans_for(EXCERPT_FENCE_PATTERN, markdown),
+        *_spans_for(LOG_EXCERPT_FENCE_PATTERN, markdown),
+    ]
 
     for match in SOURCE_REF_PATTERN.finditer(markdown):
+        if _inside_spans(match.start(), skip_spans):
+            continue
         if match.start() >= 9 and markdown[match.start() - 9 : match.start()] == "artifact:":
             continue
         reference = match.group(0)
@@ -102,6 +120,8 @@ def validate_report_markdown(
             )
 
     for match in ARTIFACT_REF_PATTERN.finditer(markdown):
+        if _inside_spans(match.start(), skip_spans):
+            continue
         reference = match.group(0)
         stripped_path = match.group("path").rstrip(".,;:!?")
         artifact_path = (artifact_dir / stripped_path).resolve()
@@ -189,6 +209,55 @@ def validate_report_markdown(
                 )
             )
 
+    for match in LOG_EXCERPT_FENCE_PATTERN.finditer(markdown):
+        raw_path = match.group("path")
+        start = int(match.group("start"))
+        end = int(match.group("end") or start)
+        reference = f"```logs {raw_path}:{start}-{end}```"
+        artifact_path = (artifact_dir / raw_path).resolve()
+        try:
+            artifact_path.relative_to(artifact_dir.resolve())
+        except ValueError:
+            issues.append(
+                ValidationIssue(
+                    kind="log_excerpt_fence",
+                    reference=reference,
+                    reason="log excerpt path escapes FAILURE_ANALYZER_OUTPUT_DIR",
+                )
+            )
+            continue
+        if not artifact_path.exists() or not artifact_path.is_file():
+            issues.append(
+                ValidationIssue(
+                    kind="log_excerpt_fence",
+                    reference=reference,
+                    reason=f"log excerpt file does not exist: {raw_path}",
+                )
+            )
+            continue
+
+        lines = artifact_path.read_text(encoding="utf-8").splitlines()
+        if start < 1 or end < start or end > len(lines):
+            issues.append(
+                ValidationIssue(
+                    kind="log_excerpt_fence",
+                    reference=reference,
+                    reason=f"line range {start}-{end} is outside artifact length {len(lines)}",
+                )
+            )
+            continue
+
+        expected = "\n".join(lines[start - 1 : end]).rstrip()
+        actual = match.group("body").rstrip()
+        if expected != actual:
+            issues.append(
+                ValidationIssue(
+                    kind="log_excerpt_fence",
+                    reference=reference,
+                    reason="log excerpt body does not exactly match the referenced artifact lines",
+                )
+            )
+
     return ValidationResult(issues=issues)
 
 
@@ -206,6 +275,7 @@ def format_validation_feedback(validation: ValidationResult, report_path: Path) 
         "Keep the report in GitHub-flavored Markdown. "
         "Use plain repo-relative source references like `path/to/file.go:55` or `path/to/file.go:55-70`. "
         "For validated source excerpts, use fences like ```go path/to/file.go#L55-L70. "
+        "For validated runtime log excerpts, use fences like ```logs timed-output.log:12-18. "
         "If you cannot support a reference, remove or rewrite it rather than leaving it invalid."
     )
 
@@ -232,6 +302,19 @@ def degrade_invalid_markdown(markdown: str, validation: ValidationResult) -> str
         return match.group(0)
 
     degraded = EXCERPT_FENCE_PATTERN.sub(replace_excerpt, degraded)
+    def replace_log_excerpt(match: re.Match[str]) -> str:
+        reference = (
+            f"```logs {match.group('path')}:{match.group('start')}"
+            f"{f'-{match.group('end')}' if match.group('end') else ''}```"
+        )
+        if any(
+            issue.kind == "log_excerpt_fence" and issue.reference == reference
+            for issue in validation.issues
+        ):
+            return f"```text\n{match.group('body')}\n```"
+        return match.group(0)
+
+    degraded = LOG_EXCERPT_FENCE_PATTERN.sub(replace_log_excerpt, degraded)
     if validation.issues:
         degraded = degraded.rstrip() + (
             "\n\n> Note: Some source references or excerpts could not be validated automatically "

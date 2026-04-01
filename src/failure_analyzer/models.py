@@ -58,6 +58,7 @@ class AnalysisRequest:
     timed_output_artifact_ref: str | None = None
     max_output_bytes: int = 120_000
     enable_shell_analysis: bool = True
+    allow_rerun: bool = False
 
 
 @dataclass(slots=True)

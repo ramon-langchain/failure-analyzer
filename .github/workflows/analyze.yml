@@ -32,6 +32,11 @@ on:
         required: false
         default: ""
         type: string
+      allow-rerun:
+        description: Allow the analyzer to rerun the test command or narrowed variants with short timeouts.
+        required: false
+        default: false
+        type: boolean
       flags:
         description: Optional internal failure-analyzer flags, for example nopreserveexitcode.
         required: false
@@ -111,6 +116,155 @@ jobs:
             echo "can_comment_pr=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Build invocation context
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTFILE: ${{ runner.temp }}/failure-analyzer/invocation-context.md
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          JOB: ${{ github.job }}
+          WORKFLOW: ${{ github.workflow }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+          COMMAND: ${{ inputs.command }}
+          WORKDIR: ${{ inputs.working-directory }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          CAN_READ_ACTIONS: ${{ steps.gh_access.outputs.can_read_actions }}
+          CAN_COMMENT_PR: ${{ steps.pr_comment_access.outputs.can_comment_pr }}
+        run: |
+          mkdir -p "$(dirname "$OUTFILE")"
+          python - "$OUTFILE" <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          from urllib.parse import quote
+
+          outfile = Path(sys.argv[1])
+
+          def env(name: str) -> str:
+              return os.environ.get(name, "").strip()
+
+          def gh_json(path: str):
+              result = subprocess.run(
+                  ["gh", "api", path],
+                  check=False,
+                  capture_output=True,
+                  text=True,
+              )
+              if result.returncode != 0:
+                  return None
+              try:
+                  return json.loads(result.stdout)
+              except json.JSONDecodeError:
+                  return None
+
+          sections: list[str] = []
+
+          sections.append(
+              "\n".join(
+                  [
+                      "<github_actions_runtime_context>",
+                      f"- running_in_github_actions: true",
+                      f"- repository: {env('REPOSITORY')}",
+                      f"- workflow: {env('WORKFLOW')}",
+                      f"- workflow_ref: {env('WORKFLOW_REF')}",
+                      f"- workflow_sha: {env('WORKFLOW_SHA')}",
+                      f"- job: {env('JOB')}",
+                      f"- event_name: {env('EVENT_NAME')}",
+                      f"- actor: {env('ACTOR')}",
+                      f"- triggering_actor: {env('TRIGGERING_ACTOR')}",
+                      f"- ref: {env('REF')}",
+                      f"- ref_name: {env('REF_NAME')}",
+                      f"- sha: {env('SHA')}",
+                      f"- run_id: {env('RUN_ID')}",
+                      f"- run_number: {env('RUN_NUMBER')}",
+                      f"- run_attempt: {env('RUN_ATTEMPT')}",
+                      f"- run_url: {env('RUN_URL')}",
+                      f"- runner_os: {env('RUNNER_OS')}",
+                      f"- runner_arch: {env('RUNNER_ARCH')}",
+                      f"- working_directory: {env('WORKDIR')}",
+                      f"- wrapped_command: {env('COMMAND')}",
+                      f"- can_read_actions_history: {env('CAN_READ_ACTIONS') or 'false'}",
+                      f"- can_comment_on_pr: {env('CAN_COMMENT_PR') or 'false'}",
+                      "</github_actions_runtime_context>",
+                  ]
+              )
+          )
+
+          pr_number = env("PR_NUMBER")
+          pr_data = None
+          if pr_number:
+              pr_data = gh_json(f"repos/{env('REPOSITORY')}/pulls/{pr_number}")
+              if pr_data is not None:
+                  user = pr_data.get("user") or {}
+                  head = pr_data.get("head") or {}
+                  base = pr_data.get("base") or {}
+                  sections.append(
+                      "\n".join(
+                          [
+                              "<pull_request_context>",
+                              f"- number: {pr_data.get('number')}",
+                              f"- title: {pr_data.get('title', '')}",
+                              f"- url: {pr_data.get('html_url', '')}",
+                              f"- state: {pr_data.get('state', '')}",
+                              f"- draft: {pr_data.get('draft', False)}",
+                              f"- submitted_by: {user.get('login', '')}",
+                              f"- submitted_by_url: {user.get('html_url', '')}",
+                              f"- head_ref: {head.get('ref', '')}",
+                              f"- head_sha: {head.get('sha', '')}",
+                              f"- base_ref: {base.get('ref', '')}",
+                              f"- base_sha: {base.get('sha', '')}",
+                              "</pull_request_context>",
+                          ]
+                      )
+                  )
+
+          if env("CAN_READ_ACTIONS").lower() == "true":
+              runs = None
+              if pr_data is not None:
+                  head = pr_data.get("head") or {}
+                  head_sha = (head.get("sha") or "").strip()
+                  if head_sha:
+                      runs = gh_json(
+                          f"repos/{env('REPOSITORY')}/actions/runs?event=pull_request&head_sha={quote(head_sha)}&status=completed&per_page=20"
+                      )
+              if runs is not None:
+                  current_run_id = env("RUN_ID")
+                  previous_failures = [
+                      run
+                      for run in runs.get("workflow_runs", [])
+                      if str(run.get("id", "")) != current_run_id and run.get("conclusion") in {"failure", "timed_out", "startup_failure", "action_required"}
+                  ]
+                  lines = [
+                      "<previous_pull_request_failures>",
+                      f"- count: {len(previous_failures)}",
+                  ]
+                  for run in previous_failures[:8]:
+                      lines.append(
+                          f"- run: {run.get('html_url', '')} | workflow={run.get('name', '')} | status={run.get('conclusion', '')} | head_branch={run.get('head_branch', '')} | created_at={run.get('created_at', '')}"
+                      )
+                  lines.append("</previous_pull_request_failures>")
+                  sections.append("\n".join(lines))
+
+          outfile.write_text("\n\n".join(section for section in sections if section.strip()) + "\n", encoding="utf-8")
+          PY
+          echo "FAILURE_ANALYZER_CONTEXT_FILE=$OUTFILE" >> "$GITHUB_ENV"
+
       - name: Run failure-analyzer
         id: analyze
         shell: bash
@@ -141,6 +295,9 @@ jobs:
           fi
           if [ -n "$FAILURE_ANALYZER_CUSTOM_INSTRUCTIONS" ]; then
             args+=(--instructions "$FAILURE_ANALYZER_CUSTOM_INSTRUCTIONS")
+          fi
+          if [ "${{ inputs.allow-rerun }}" = "true" ]; then
+            args+=(--allow-rerun)
           fi
 
           set +e

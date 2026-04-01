@@ -12,7 +12,7 @@ Small Go module for exercising `failure-analyzer` against realistic CI-style fai
 
 ```bash
 cd examples/go-ci-demo
-go test ./...
+go test -json -race -cover -timeout 10s ./...
 ```
 
 ## Run through the analyzer
@@ -20,17 +20,17 @@ go test ./...
 From the repo root:
 
 ```bash
-uv run failure-analyzer -C examples/go-ci-demo go test ./...
+uv run failure-analyzer -C examples/go-ci-demo go test -json -race -cover -timeout 10s ./...
 ```
 
 Or from inside the example project:
 
 ```bash
 cd examples/go-ci-demo
-uv run ../../. failure-analyzer go test ./...
+uv run ../../. failure-analyzer go test -json -race -cover -timeout 10s ./...
 ```
 
-The current test suite is intentionally not green. It includes a couple of realistic logic regressions so the analyzer has something non-trivial to inspect.
+The current test suite is intentionally not green. It includes a couple of realistic logic regressions plus a deterministic async timeout failure exercised with `testing/synctest`, so the analyzer has something more interesting than simple arithmetic mismatches to inspect.
 
 ## GitHub Actions demo
 

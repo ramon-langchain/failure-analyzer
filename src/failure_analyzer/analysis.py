@@ -10,6 +10,7 @@ from textwrap import dedent
 from typing import IO
 from typing import Any
 
+from failure_analyzer.context_builder import append_invocation_context, load_invocation_context
 from failure_analyzer.deepagents_conventions import load_deepagents_conventions
 from failure_analyzer.models import AnalysisRequest, AnalysisResult, TestRunResult
 from failure_analyzer.prompting import (
@@ -80,6 +81,12 @@ def resolve_model(model: str | None) -> str:
     return DEFAULT_MODEL
 
 
+def build_analysis_system_prompt(custom_instructions: str | None) -> str:
+    """Build the final analysis system prompt including runtime invocation context."""
+    with_context = append_invocation_context(ANALYSIS_SYSTEM_PROMPT, load_invocation_context())
+    return append_custom_instructions(with_context, custom_instructions)
+
+
 def _get_env(name: str) -> str | None:
     """Read prefixed failure-analyzer env vars before the default provider vars."""
     return os.environ.get(f"FAILURE_ANALYZER_{name}") or os.environ.get(name)
@@ -111,10 +118,13 @@ def build_analysis_request(
     repo_root: Path,
     max_output_bytes: int,
     enable_shell_analysis: bool,
+    allow_rerun: bool,
     timed_output_artifact_ref: str | None = None,
 ) -> AnalysisRequest:
     """Transform a failed test run into an analysis request."""
     combined_output, _ = truncate_text(result.combined_output, max_bytes=max_output_bytes)
+    if timed_output_artifact_ref is None and result.timed_output_path is not None:
+        timed_output_artifact_ref = "timed-output.log"
     return AnalysisRequest(
         command=result.command,
         repo_root=repo_root,
@@ -129,6 +139,7 @@ def build_analysis_request(
         timed_output_artifact_ref=timed_output_artifact_ref,
         max_output_bytes=max_output_bytes,
         enable_shell_analysis=enable_shell_analysis,
+        allow_rerun=allow_rerun,
     )
 
 
@@ -150,9 +161,16 @@ def render_user_prompt(request: AnalysisRequest) -> tuple[str, bool]:
     duration_text = f"{duration_ms} ms" if duration_ms is not None else "<unknown>"
     timed_output_path = request.timed_output_path or Path("<not captured>")
     timed_output_artifact_line = (
-        f"- Timed output artifact reference: `{request.timed_output_artifact_ref}:<start>-<end>`\n"
+        f"- Timed output log fence format: ```logs {request.timed_output_artifact_ref}:<start>-<end>\n"
         if request.timed_output_artifact_ref
         else ""
+    )
+    rerun_guidance = (
+        "- You may rerun the test command or a narrowed variant if that would materially improve the diagnosis.\n"
+        "- Any rerun must use short timeouts and should aim to finish within about two minutes total.\n"
+        "- Prefer targeted reruns over broad expensive reruns.\n"
+        if request.allow_rerun
+        else "- Do not rerun the test command. Diagnose from the existing output and repository state only.\n"
     )
     environment_block = format_environment_block(request.environment)
     prompt = dedent(
@@ -166,11 +184,14 @@ def render_user_prompt(request: AnalysisRequest) -> tuple[str, bool]:
         - Finished at (UTC): `{format_timestamp(request.finished_at)}`
         - Duration: `{duration_text}`
         - Shell-based diagnostics: {shell_mode}
+        - Rerunning tests permitted: {"yes" if request.allow_rerun else "no"}
         - Full timed output file: `{timed_output_path}`
         - Timed output format: {STREAM_FORMAT_LEGEND}
         {timed_output_artifact_line}
 
         The exit code is the ground truth. Explain why the test failed. You may inspect files outside the working directory if they are relevant and accessible on the host.
+
+        {rerun_guidance}
 
         ### Environment (redacted)
 
@@ -405,6 +426,7 @@ async def analyze_failure(
     custom_instructions: str | None,
     max_output_bytes: int,
     enable_shell_analysis: bool,
+    allow_rerun: bool,
     status_sink: IO[str] | None = None,
 ) -> AnalysisResult:
     """Run the Deep Agent and return its validated Markdown analysis."""
@@ -419,8 +441,9 @@ async def analyze_failure(
         repo_root=repo_root,
         max_output_bytes=max_output_bytes,
         enable_shell_analysis=enable_shell_analysis,
+        allow_rerun=allow_rerun,
         timed_output_artifact_ref=(
-            "artifact:timed-output.log"
+            "timed-output.log"
             if result.timed_output_path is not None
             else None
         ),
@@ -446,7 +469,7 @@ async def analyze_failure(
     agent = create_deep_agent(
         model=resolve_model(model),
         tools=[],
-        system_prompt=append_custom_instructions(ANALYSIS_SYSTEM_PROMPT, custom_instructions),
+        system_prompt=build_analysis_system_prompt(custom_instructions),
         backend=backend,
         memory=conventions.memory_sources or None,
         skills=conventions.skill_sources or None,

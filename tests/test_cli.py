@@ -58,6 +58,7 @@ def test_cli_runs_analysis_and_preserves_exit_code(monkeypatch, tmp_path: Path) 
 
     async def fake_analyze_failure(*args, **kwargs):
         captured["custom_instructions"] = kwargs.get("custom_instructions")
+        captured["allow_rerun"] = kwargs.get("allow_rerun")
         return AnalysisResult(
             report_markdown="## Summary\nreport body",
             used_truncation=False,
@@ -74,6 +75,7 @@ def test_cli_runs_analysis_and_preserves_exit_code(monkeypatch, tmp_path: Path) 
         [
             "--instructions",
             "Prefer reproduction steps.",
+            "--allow-rerun",
             "--report-file",
             str(report_file),
             "go",
@@ -83,6 +85,7 @@ def test_cli_runs_analysis_and_preserves_exit_code(monkeypatch, tmp_path: Path) 
     )
     assert result.exit_code == 7
     assert captured["custom_instructions"] == "Prefer reproduction steps."
+    assert captured["allow_rerun"] is True
     assert "## Summary\nreport body" in result.output
     report_text = report_file.read_text(encoding="utf-8")
     assert "## Summary\nreport body" in report_text
