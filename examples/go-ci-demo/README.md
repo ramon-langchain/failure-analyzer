@@ -31,3 +31,15 @@ uv run ../../. failure-analyzer go test ./...
 ```
 
 The current test suite is intentionally not green. It includes a couple of realistic logic regressions so the analyzer has something non-trivial to inspect.
+
+## GitHub Actions demo
+
+This repository includes a manual workflow at [.github/workflows/example-go-ci-demo.yml](/Users/ramon/langchain/failure-analyzer/.github/workflows/example-go-ci-demo.yml) that runs this example through `failure-analyzer` on GitHub Actions.
+
+To use it:
+
+1. Add at least one supported provider secret to the repository, such as `OPENAI_API_KEY` or `FAILURE_ANALYZER_OPENAI_API_KEY`.
+2. Open the `Example Go CI Demo` workflow in the Actions tab.
+3. Click `Run workflow`.
+
+The workflow is expected to fail, and the analysis will be written to the run summary.

@@ -42,6 +42,8 @@ Optional inputs:
 
 The reusable workflow writes the Markdown analysis to the GitHub Actions job summary automatically and preserves the wrapped command's exit code.
 
+This repo also includes a manual demo workflow at [.github/workflows/example-go-ci-demo.yml](/Users/ramon/langchain/failure-analyzer/.github/workflows/example-go-ci-demo.yml) that runs the intentionally failing Go sample in `examples/go-ci-demo`. Add one of the supported provider secrets to this repository, then trigger `Example Go CI Demo` from the Actions tab to see the summary output end to end.
+
 ## Direct CLI Usage
 
 One-off usage:

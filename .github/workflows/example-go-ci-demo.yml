@@ -1,0 +1,15 @@
+name: Example Go CI Demo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    uses: ./.github/workflows/analyze.yml
+    secrets: inherit
+    with:
+      command: go test ./...
+      working-directory: examples/go-ci-demo
