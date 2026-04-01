@@ -1,0 +1,122 @@
+name: Debug GitHub Actions Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  debug:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Print runner and workflow context
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+          RUNNER_CONTEXT: ${{ toJson(runner) }}
+          JOB_CONTEXT: ${{ toJson(job) }}
+          STRATEGY_CONTEXT: ${{ toJson(strategy) }}
+          MATRIX_CONTEXT: ${{ toJson(matrix) }}
+        run: |
+          echo "== workflow =="
+          echo "workflow: $GITHUB_WORKFLOW"
+          echo "job: $GITHUB_JOB"
+          echo "actor: $GITHUB_ACTOR"
+          echo "triggering_actor: $GITHUB_TRIGGERING_ACTOR"
+          echo "event_name: $GITHUB_EVENT_NAME"
+          echo "event_path: $GITHUB_EVENT_PATH"
+          echo "action: $GITHUB_ACTION"
+          echo "action_repository: $GITHUB_ACTION_REPOSITORY"
+          echo "action_ref: $GITHUB_ACTION_REF"
+          echo "ref: $GITHUB_REF"
+          echo "ref_name: $GITHUB_REF_NAME"
+          echo "ref_type: $GITHUB_REF_TYPE"
+          echo "sha: $GITHUB_SHA"
+          echo "repository: $GITHUB_REPOSITORY"
+          echo "workspace: $GITHUB_WORKSPACE"
+          echo "run_id: $GITHUB_RUN_ID"
+          echo "run_number: $GITHUB_RUN_NUMBER"
+          echo "run_attempt: $GITHUB_RUN_ATTEMPT"
+          echo
+          echo "== runner =="
+          echo "os: $RUNNER_OS"
+          echo "arch: $RUNNER_ARCH"
+          echo "name: $RUNNER_NAME"
+          echo "temp: $RUNNER_TEMP"
+          echo "tool_cache: $RUNNER_TOOL_CACHE"
+          echo "environment: $RUNNER_ENVIRONMENT"
+          echo
+          echo "== contexts =="
+          echo "$GITHUB_CONTEXT"
+          echo "$RUNNER_CONTEXT"
+          echo "$JOB_CONTEXT"
+          echo "$STRATEGY_CONTEXT"
+          echo "$MATRIX_CONTEXT"
+
+      - name: Print selected environment variables
+        shell: bash
+        run: |
+          echo "== selected env =="
+          python3 - <<'PY'
+          import os
+
+          prefixes = ("GITHUB_", "RUNNER_", "CI")
+          blocked_exact = {
+              "GITHUB_TOKEN",
+          }
+          blocked_contains = (
+              "TOKEN",
+              "SECRET",
+              "PASSWORD",
+              "KEY",
+              "CREDENTIAL",
+          )
+
+          for key in sorted(os.environ):
+              if not key.startswith(prefixes):
+                  continue
+              if key in blocked_exact:
+                  continue
+              if any(part in key for part in blocked_contains):
+                  continue
+              print(f"{key}={os.environ[key]}")
+          PY
+
+      - name: Print event payload
+        shell: bash
+        run: |
+          echo "== event payload =="
+          jq . "$GITHUB_EVENT_PATH"
+
+      - name: Print git and filesystem state
+        shell: bash
+        run: |
+          echo "== pwd =="
+          pwd
+          echo
+          echo "== ls =="
+          ls -la
+          echo
+          echo "== git status =="
+          git status --short --branch
+          echo
+          echo "== recent commits =="
+          git log --oneline -5
+          echo
+          echo "== workspace tree =="
+          find . -maxdepth 3 -type f | sort | sed -n '1,200p'
+
+      - name: Print toolchain versions
+        shell: bash
+        run: |
+          echo "== versions =="
+          python3 --version
+          if command -v uv >/dev/null 2>&1; then uv --version; fi
+          if command -v go >/dev/null 2>&1; then go version; fi
+          if command -v node >/dev/null 2>&1; then node --version; fi
+          if command -v npm >/dev/null 2>&1; then npm --version; fi

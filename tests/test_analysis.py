@@ -1,0 +1,251 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import io
+from pathlib import Path
+
+import pytest
+
+from test_analyzer import analysis
+from test_analyzer.models import TestRunResult
+
+
+def make_result(**overrides: object) -> TestRunResult:
+    base = {
+        "command": ("go", "test", "./..."),
+        "cwd": Path("/repo"),
+        "exit_code": 1,
+        "stdout": "ok package/a\n",
+        "stderr": "FAIL package/b\npanic: boom\n",
+        "started_at": datetime.now(timezone.utc),
+        "finished_at": datetime.now(timezone.utc),
+    }
+    base.update(overrides)
+    return TestRunResult(**base)
+
+
+def test_truncate_text_preserves_head_and_tail() -> None:
+    text = "a" * 200 + "tail"
+    truncated, did_truncate = analysis.truncate_text(text, max_bytes=64)
+    assert did_truncate is True
+    assert truncated.startswith("a")
+    assert "output truncated" in truncated
+    assert truncated.endswith("tail")
+
+
+def test_render_user_prompt_includes_failure_context() -> None:
+    request = analysis.build_analysis_request(
+        make_result(),
+        repo_root=Path("/repo"),
+        max_output_bytes=1024,
+        enable_shell_analysis=True,
+    )
+    prompt, used_truncation = analysis.render_user_prompt(request)
+    assert used_truncation is False
+    assert "go test ./..." in prompt
+    assert "Exit code: `1`" in prompt
+    assert "panic: boom" in prompt
+
+
+def test_resolve_model_defaults_to_gpt_5_4_mini(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    assert analysis.resolve_model(None) == "openai:gpt-5.4-mini"
+
+
+def test_resolve_model_prefers_explicit_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(analysis.MODEL_ENV_VAR, "openai:gpt-custom")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    assert analysis.resolve_model(None) == "openai:gpt-custom"
+
+
+def test_resolve_model_selects_openai_when_key_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    assert analysis.resolve_model(None) == "openai:gpt-5.4-mini"
+
+
+def test_resolve_model_selects_anthropic_when_no_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    assert analysis.resolve_model(None) == "anthropic:claude-sonnet-4-6"
+
+
+def test_resolve_model_selects_google_flash_lite(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    assert analysis.resolve_model(None) == "google_genai:gemini-3.1-flash-lite-preview"
+
+
+def test_resolve_model_selects_vertex_flash_lite(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    assert analysis.resolve_model(None) == "google_vertexai:gemini-3.1-flash-lite-preview"
+
+
+def test_test_analyzer_prefixed_openai_key_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
+    monkeypatch.setenv("TEST_ANALYZER_OPENAI_API_KEY", "prefixed")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "default-anthropic")
+    monkeypatch.setenv("GOOGLE_API_KEY", "default-google")
+    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    assert analysis.resolve_model(None) == "openai:gpt-5.4-mini"
+
+
+def test_test_analyzer_prefixed_anthropic_key_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("TEST_ANALYZER_ANTHROPIC_API_KEY", "prefixed")
+    monkeypatch.setenv("GOOGLE_API_KEY", "default-google")
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    assert analysis.resolve_model(None) == "anthropic:claude-sonnet-4-6"
+
+
+def test_test_analyzer_prefixed_google_key_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("TEST_ANALYZER_GOOGLE_API_KEY", "prefixed")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "default-project")
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", raising=False)
+    assert analysis.resolve_model(None) == "google_genai:gemini-3.1-flash-lite-preview"
+
+
+def test_test_analyzer_prefixed_vertex_project_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("TEST_ANALYZER_GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("TEST_ANALYZER_GOOGLE_CLOUD_PROJECT", "prefixed-project")
+    assert analysis.resolve_model(None) == "google_vertexai:gemini-3.1-flash-lite-preview"
+
+
+@pytest.mark.asyncio
+async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeAgent:
+        async def astream(self, *_args, **_kwargs):
+            yield (
+                "values",
+                {
+                    "messages": [
+                        type(
+                            "FakeAIMessage",
+                            (),
+                            {
+                                "tool_calls": [
+                                    {
+                                        "id": "tool-1",
+                                        "name": "read_file",
+                                        "args": {"file_path": "/repo/pricing.go"},
+                                    }
+                                ]
+                            },
+                        )(),
+                        type(
+                            "FakeToolMessage",
+                            (),
+                            {"tool_call_id": "tool-1", "name": "read_file", "content": "ok"},
+                        )(),
+                    ]
+                },
+            )
+            yield (
+                "messages",
+                (
+                    type(
+                        "FakeChunk",
+                        (),
+                        {"content": [{"type": "text", "text": "## Summary\nFailure report"}]},
+                    )(),
+                    {},
+                ),
+            )
+            yield (
+                "values",
+                {
+                    "messages": [
+                        {"content": "## Summary\nFailure report"},
+                    ]
+                },
+            )
+
+    class FakeFilesystemBackend:
+        def __init__(self, **_: object) -> None:
+            pass
+
+    class FakeLocalShellBackend(FakeFilesystemBackend):
+        pass
+
+    def fake_create_deep_agent(**_: object) -> FakeAgent:
+        return FakeAgent()
+
+    import sys
+    import types
+
+    deepagents_module = types.SimpleNamespace(create_deep_agent=fake_create_deep_agent)
+    backends_module = types.SimpleNamespace(
+        FilesystemBackend=FakeFilesystemBackend,
+        LocalShellBackend=FakeLocalShellBackend,
+    )
+    monkeypatch.setitem(sys.modules, "deepagents", deepagents_module)
+    monkeypatch.setitem(sys.modules, "deepagents.backends", backends_module)
+
+    sink = io.StringIO()
+    result = await analysis.analyze_failure(
+        make_result(),
+        repo_root=Path("/repo"),
+        model="openai:gpt-5",
+        max_output_bytes=1024,
+        enable_shell_analysis=False,
+        status_sink=sink,
+    )
+    assert result.report_markdown == "## Summary\nFailure report"
+    assert result.was_streamed is True
+    stderr_output = sink.getvalue()
+    assert "[analyzer] Starting failure analysis..." in stderr_output
+    assert "[analyzer] Tool: read_file /repo/pricing.go" in stderr_output
+    assert "## Summary\nFailure report" in stderr_output
