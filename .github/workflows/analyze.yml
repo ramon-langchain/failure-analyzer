@@ -91,6 +91,21 @@ jobs:
             echo "can_read_actions=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Detect PR comment access
+        id: pr_comment_access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+        run: |
+          if [ -n "$PR_NUMBER" ] && \
+             command -v gh >/dev/null 2>&1 && \
+             gh auth status >/dev/null 2>&1; then
+            echo "can_comment_pr=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_comment_pr=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run failure-analyzer
         id: analyze
         shell: bash
@@ -99,7 +114,10 @@ jobs:
           FAILURE_ANALYZER_FLAGS: ${{ inputs.flags }}
           FAILURE_ANALYZER_MODEL: ${{ inputs.model }}
           FAILURE_ANALYZER_CAN_READ_ACTIONS: ${{ steps.gh_access.outputs.can_read_actions }}
+          FAILURE_ANALYZER_CAN_COMMENT_PR: ${{ steps.pr_comment_access.outputs.can_comment_pr }}
+          FAILURE_ANALYZER_PR_NUMBER: ${{ github.event.pull_request.number || '' }}
           FAILURE_ANALYZER_FILES_BASE: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/
+          FAILURE_ANALYZER_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           FAILURE_ANALYZER_OPENAI_API_KEY: ${{ secrets.FAILURE_ANALYZER_OPENAI_API_KEY }}
           FAILURE_ANALYZER_ANTHROPIC_API_KEY: ${{ secrets.FAILURE_ANALYZER_ANTHROPIC_API_KEY }}
           FAILURE_ANALYZER_GOOGLE_API_KEY: ${{ secrets.FAILURE_ANALYZER_GOOGLE_API_KEY }}
@@ -125,6 +143,30 @@ jobs:
           status=$?
           echo "command_exit_code=$status" >> "$GITHUB_OUTPUT"
           exit 0
+
+      - name: Post PR comment
+        if: always() && steps.pr_comment_access.outputs.can_comment_pr == 'true' && steps.analyze.outputs.failure_analyzer_pr_comment_path != ''
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          COMMENT_FILE: ${{ steps.analyze.outputs.failure_analyzer_pr_comment_path }}
+        run: |
+          json_file="$RUNNER_TEMP/failure-analyzer-pr-comment.json"
+          python - "$COMMENT_FILE" "$json_file" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          src, dst = sys.argv[1], sys.argv[2]
+          body = pathlib.Path(src).read_text(encoding="utf-8")
+          pathlib.Path(dst).write_text(json.dumps({"body": body}), encoding="utf-8")
+          PY
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --input "$json_file"
 
       - name: Preserve test exit code
         if: always()

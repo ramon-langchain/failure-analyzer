@@ -12,12 +12,15 @@ from dotenv import load_dotenv
 from failure_analyzer.analysis import (
     analyze_failure,
     build_fallback_report,
+    generate_pr_comment,
     SUPPORTED_SECRET_NAMES,
 )
 from failure_analyzer.github_actions import (
     append_step_summary,
     default_report_path,
+    default_pr_comment_path,
     export_report_path,
+    export_pr_comment_path,
     is_github_actions,
 )
 from failure_analyzer.prompting import (
@@ -63,6 +66,7 @@ async def _async_main(
         return 0
 
     missing_credentials_summary = None
+    brief_pr_comment = ""
     if is_github_actions() and not has_any_provider_credentials(SUPPORTED_SECRET_NAMES):
         missing_credentials_summary = build_missing_credentials_summary(SUPPORTED_SECRET_NAMES)
 
@@ -96,6 +100,23 @@ async def _async_main(
     run_context_markdown = ""
     if missing_credentials_summary is None:
         report = linkify_report_markdown(report, result)
+        if (
+            is_github_actions()
+            and os.environ.get("FAILURE_ANALYZER_CAN_COMMENT_PR", "").lower() == "true"
+            and os.environ.get("FAILURE_ANALYZER_PR_NUMBER", "").strip()
+            and os.environ.get("FAILURE_ANALYZER_RUN_URL", "").strip()
+        ):
+            try:
+                brief_pr_comment = await generate_pr_comment(
+                    report_markdown=report,
+                    command=result.command,
+                    repo_root=work_dir,
+                    model=model,
+                    run_url=os.environ["FAILURE_ANALYZER_RUN_URL"],
+                )
+            except Exception as exc:
+                if verbose:
+                    click.echo(f"PR comment generation failed: {type(exc).__name__}: {exc}", err=True)
         report = append_run_context(report, result)
         run_context_markdown = build_run_context_markdown(result)
 
@@ -108,6 +129,16 @@ async def _async_main(
             report_file.write_text(report, encoding="utf-8")
             github_report_handled = True
 
+        pr_comment_file = None
+        pr_comment_exported = False
+        if brief_pr_comment:
+            link = os.environ.get("FAILURE_ANALYZER_RUN_URL", "").strip()
+            comment_text = f"{brief_pr_comment} Full analysis: {link}" if link else brief_pr_comment
+            pr_comment_file = default_pr_comment_path()
+            pr_comment_file.parent.mkdir(parents=True, exist_ok=True)
+            pr_comment_file.write_text(comment_text, encoding="utf-8")
+            pr_comment_exported = export_pr_comment_path(pr_comment_file)
+
         exported = export_report_path(report_file) if report_file is not None else False
         summarized = append_step_summary(report)
         if verbose:
@@ -118,6 +149,8 @@ async def _async_main(
                 )
             if report_file is not None:
                 click.echo(f"GitHub Actions report file: {report_file}", err=True)
+            if pr_comment_exported and pr_comment_file is not None:
+                click.echo(f"GitHub Actions PR comment file: {pr_comment_file}", err=True)
             if summarized:
                 click.echo("GitHub Actions step summary updated.", err=True)
 

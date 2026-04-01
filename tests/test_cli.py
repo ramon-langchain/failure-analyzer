@@ -5,7 +5,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from failure_analyzer.cli import FLAGS_ENV_VAR, NO_PRESERVE_EXIT_FLAG, cli
-from failure_analyzer.github_actions import REPORT_OUTPUT_NAME
+from failure_analyzer.github_actions import PR_COMMENT_OUTPUT_NAME, REPORT_OUTPUT_NAME
 from failure_analyzer.models import AnalysisResult, TestRunResult
 
 
@@ -172,6 +172,45 @@ def test_cli_writes_github_actions_report_and_outputs_path(monkeypatch, tmp_path
     assert "### Important Environment (redacted)" in summary_text
     assert "<summary>Timed Output Excerpt</summary>" in summary_text
     assert "<details>" in summary_text
+
+
+def test_cli_generates_pr_comment_file_in_github_actions(monkeypatch, tmp_path: Path) -> None:
+    async def fake_run_test_command(*args, **kwargs):
+        return make_result(exit_code=9)
+
+    async def fake_analyze_failure(*args, **kwargs):
+        return AnalysisResult(
+            report_markdown="## Summary\nreport body",
+            used_truncation=False,
+            was_streamed=False,
+        )
+
+    async def fake_generate_pr_comment(*args, **kwargs):
+        return "One paragraph summary."
+
+    output_file = tmp_path / "github_output.txt"
+    summary_file = tmp_path / "step_summary.md"
+    comment_file = tmp_path / "runner-temp" / "failure-analyzer" / "pr-comment.md"
+
+    monkeypatch.setattr("failure_analyzer.cli.run_test_command", fake_run_test_command)
+    monkeypatch.setattr("failure_analyzer.cli.analyze_failure", fake_analyze_failure)
+    monkeypatch.setattr("failure_analyzer.cli.generate_pr_comment", fake_generate_pr_comment)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path / "runner-temp"))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("FAILURE_ANALYZER_CAN_COMMENT_PR", "true")
+    monkeypatch.setenv("FAILURE_ANALYZER_PR_NUMBER", "123")
+    monkeypatch.setenv("FAILURE_ANALYZER_RUN_URL", "https://github.com/example/repo/actions/runs/123")
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["go", "test", "./..."])
+    assert result.exit_code == 9
+    comment_text = comment_file.read_text(encoding="utf-8")
+    assert comment_text == "One paragraph summary. Full analysis: https://github.com/example/repo/actions/runs/123"
+    output_text = output_file.read_text(encoding="utf-8")
+    assert f"{PR_COMMENT_OUTPUT_NAME}={comment_file}" in output_text
 
 
 def test_cli_writes_missing_credentials_summary_in_github_actions(

@@ -15,6 +15,7 @@ from failure_analyzer.models import TestRunResult
 
 
 PROMPT_RESOURCE = "ci_failure_analysis_system.md"
+PR_COMMENT_PROMPT_RESOURCE = "ci_failure_pr_comment_system.md"
 REDACTED_ENV_MARKERS = ("KEY", "API", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 STREAM_FORMAT_LEGEND = "`+<milliseconds>ms <stream> <text>`, where `O` means stdout and `E` means stderr."
 IMPORTANT_ENV_NAMES = (
@@ -56,6 +57,16 @@ def load_system_prompt() -> str:
     return (
         files("failure_analyzer.prompts")
         .joinpath(PROMPT_RESOURCE)
+        .read_text(encoding="utf-8")
+        .strip()
+    )
+
+
+def load_pr_comment_prompt() -> str:
+    """Load the PR comment system prompt from the packaged prompt resource."""
+    return (
+        files("failure_analyzer.prompts")
+        .joinpath(PR_COMMENT_PROMPT_RESOURCE)
         .read_text(encoding="utf-8")
         .strip()
     )

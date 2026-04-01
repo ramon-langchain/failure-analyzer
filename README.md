@@ -38,6 +38,26 @@ jobs:
 
 Inside the reusable workflow, `failure-analyzer` is installed from the same commit as the workflow itself, so the workflow definition and tool code stay in sync.
 
+Recommended caller permissions:
+
+```yaml
+permissions:
+  contents: read
+  issues: write
+  actions: read
+```
+
+- `contents: read` is required for checkout.
+- `issues: write` is required only if you want `failure-analyzer` to post a short PR comment.
+- `actions: read` is optional and only enables the agent to inspect prior workflow runs to judge flakiness.
+
+If you do not want PR comments or flaky-run inspection, this also works:
+
+```yaml
+permissions:
+  contents: read
+```
+
 The caller repository should define provider credentials as Actions secrets. Supported secret names are:
 
 - `OPENAI_API_KEY`
@@ -57,8 +77,11 @@ Optional inputs:
 - `go-version`
 - `python-version`
 - `model`
+- `flags`
 
-The reusable workflow writes the Markdown analysis to the GitHub Actions job summary automatically and preserves the wrapped command's exit code.
+The reusable workflow writes the full Markdown analysis to the GitHub Actions job summary automatically and preserves the wrapped command's exit code.
+
+When the caller workflow is running on a pull request and grants `issues: write`, `failure-analyzer` also generates a separate one-paragraph PR comment and posts it to the PR thread. That short comment links back to the full workflow run summary.
 
 This repo also includes a manual demo workflow at [.github/workflows/example-go-ci-demo.yml](/Users/ramon/langchain/failure-analyzer/.github/workflows/example-go-ci-demo.yml) that runs the intentionally failing Go sample in `examples/go-ci-demo`. Add one of the supported provider secrets to this repository, then trigger `Example Go CI Demo` from the Actions tab to see the summary output end to end.
 

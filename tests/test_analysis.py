@@ -68,6 +68,11 @@ def test_system_prompt_is_loaded_from_resource_file() -> None:
     assert "gh" in analysis.ANALYSIS_SYSTEM_PROMPT
 
 
+def test_pr_comment_prompt_is_loaded_from_resource_file() -> None:
+    assert "exactly one paragraph" in analysis.PR_COMMENT_SYSTEM_PROMPT
+    assert "Do not include a \"full analysis\" link" in analysis.PR_COMMENT_SYSTEM_PROMPT
+
+
 def test_build_run_context_markdown_collapses_full_environment(tmp_path: Path) -> None:
     from failure_analyzer.prompting import build_run_context_markdown
 
@@ -330,3 +335,57 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
     assert captured_kwargs["memory"] == ["/repo/.deepagents/AGENTS.md"]
     assert captured_kwargs["skills"] == ["/repo/.deepagents/skills"]
     assert captured_kwargs["name"] == "failure-analyzer"
+
+
+@pytest.mark.asyncio
+async def test_generate_pr_comment_returns_single_line_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    class FakeAgent:
+        async def astream(self, *_args, **_kwargs):
+            yield (
+                "values",
+                {
+                    "messages": [
+                        {"content": "Root cause is bad rounding in pricing plus free-shipping threshold logic.\n"}
+                    ]
+                },
+            )
+
+    class FakeFilesystemBackend:
+        def __init__(self, **_: object) -> None:
+            pass
+
+    def fake_create_deep_agent(**kwargs: object) -> FakeAgent:
+        captured_kwargs.update(kwargs)
+        return FakeAgent()
+
+    import sys
+    import types
+
+    deepagents_module = types.SimpleNamespace(create_deep_agent=fake_create_deep_agent)
+    backends_module = types.SimpleNamespace(FilesystemBackend=FakeFilesystemBackend)
+    monkeypatch.setitem(sys.modules, "deepagents", deepagents_module)
+    monkeypatch.setitem(sys.modules, "deepagents.backends", backends_module)
+    monkeypatch.setattr(
+        analysis,
+        "load_deepagents_conventions",
+        lambda _repo_root: DeepAgentsConventions(
+            user_cwd=Path("/repo"),
+            project_root=Path("/repo"),
+            agent_name="failure-analyzer",
+            memory_sources=["/repo/.deepagents/AGENTS.md"],
+            skill_sources=["/repo/.deepagents/skills"],
+        ),
+    )
+
+    comment = await analysis.generate_pr_comment(
+        report_markdown="## Summary\nfull report",
+        command=("go", "test", "./..."),
+        repo_root=Path("/repo"),
+        model="openai:gpt-5",
+        run_url="https://github.com/example/repo/actions/runs/123",
+    )
+
+    assert comment == "Root cause is bad rounding in pricing plus free-shipping threshold logic."
+    assert captured_kwargs["name"] == "failure-analyzer-pr-comment"

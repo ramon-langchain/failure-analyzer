@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 REPORT_OUTPUT_NAME = "failure_analyzer_report_path"
+PR_COMMENT_OUTPUT_NAME = "failure_analyzer_pr_comment_path"
 
 
 def is_github_actions() -> bool:
@@ -29,6 +30,23 @@ def default_report_path() -> Path:
         return Path(workspace).resolve() / ".failure-analyzer" / "failure-analysis.md"
 
     return Path.cwd() / ".failure-analyzer" / "failure-analysis.md"
+
+
+def default_pr_comment_path() -> Path:
+    """Choose a stable default path for a generated PR comment body."""
+    configured = os.environ.get("FAILURE_ANALYZER_GITHUB_PR_COMMENT_PATH")
+    if configured:
+        return Path(configured).expanduser().resolve()
+
+    runner_temp = os.environ.get("RUNNER_TEMP")
+    if runner_temp:
+        return Path(runner_temp).resolve() / "failure-analyzer" / "pr-comment.md"
+
+    workspace = os.environ.get("GITHUB_WORKSPACE")
+    if workspace:
+        return Path(workspace).resolve() / ".failure-analyzer" / "pr-comment.md"
+
+    return Path.cwd() / ".failure-analyzer" / "pr-comment.md"
 
 
 def append_step_summary(markdown: str) -> bool:
@@ -58,4 +76,17 @@ def export_report_path(report_path: Path) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(f"{REPORT_OUTPUT_NAME}={report_path}\n")
+    return True
+
+
+def export_pr_comment_path(comment_path: Path) -> bool:
+    """Expose the generated PR comment path as a GitHub Actions step output."""
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if not output_path:
+        return False
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(f"{PR_COMMENT_OUTPUT_NAME}={comment_path}\n")
     return True

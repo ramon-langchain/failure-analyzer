@@ -16,6 +16,7 @@ from failure_analyzer.prompting import (
     format_environment_block,
     format_exact_command,
     format_timestamp,
+    load_pr_comment_prompt,
     load_system_prompt,
 )
 
@@ -49,6 +50,7 @@ SUPPORTED_SECRET_NAMES = (
 )
 
 ANALYSIS_SYSTEM_PROMPT = load_system_prompt()
+PR_COMMENT_SYSTEM_PROMPT = load_pr_comment_prompt()
 
 
 def resolve_model(model: str | None) -> str:
@@ -436,3 +438,54 @@ async def analyze_failure(
         used_truncation=used_truncation,
         was_streamed=started_report,
     )
+
+
+async def generate_pr_comment(
+    *,
+    report_markdown: str,
+    command: tuple[str, ...],
+    repo_root: Path,
+    model: str | None,
+    run_url: str,
+    status_sink: IO[str] | None = None,
+) -> str:
+    """Generate a brief PR comment from the main analysis report."""
+    from deepagents import create_deep_agent
+    from deepagents.backends import FilesystemBackend
+
+    status_sink = status_sink or sys.stderr
+    conventions = load_deepagents_conventions(repo_root)
+    backend = FilesystemBackend(root_dir=repo_root, virtual_mode=False)
+    agent = create_deep_agent(
+        model=resolve_model(model),
+        tools=[],
+        system_prompt=PR_COMMENT_SYSTEM_PROMPT,
+        backend=backend,
+        memory=conventions.memory_sources or None,
+        skills=conventions.skill_sources or None,
+        name=f"{conventions.agent_name}-pr-comment",
+    )
+    prompt = dedent(
+        f"""\
+        Exact test command: `{format_exact_command(list(command))}`
+        Workflow run URL: `{run_url}`
+
+        Full failure analysis report:
+
+        {report_markdown}
+        """
+    )
+    emit_status_line(status_sink, "Generating short PR comment...")
+
+    final_messages: list[Any] = []
+    async for mode, data in agent.astream(
+        {"messages": [{"role": "user", "content": prompt}]},
+        stream_mode=["values"],
+    ):
+        if mode == "values":
+            messages = data.get("messages", [])
+            if isinstance(messages, list):
+                final_messages = messages
+
+    comment = find_last_text_message(final_messages).strip()
+    return " ".join(comment.split())
