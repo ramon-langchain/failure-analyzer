@@ -23,6 +23,8 @@ def make_result(**overrides: object) -> TestRunResult:
             "CI": "true",
             "OPENAI_API_KEY": "secret",
             "PATH": "/usr/bin:/bin",
+            "FAILURE_ANALYZER_CAN_READ_ACTIONS": "true",
+            "FAILURE_ANALYZER_FILES_BASE": "https://github.com/example/repo/blob/abc123/",
         },
         "timed_output_path": Path("/tmp/failure-analyzer/timed-output.log"),
     }
@@ -59,6 +61,28 @@ def test_render_user_prompt_includes_failure_context() -> None:
 def test_system_prompt_is_loaded_from_resource_file() -> None:
     assert "time-ordered output log" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "O` means stdout" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "FAILURE_ANALYZER_FILES_BASE" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "do not invent file URLs" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "FAILURE_ANALYZER_CAN_READ_ACTIONS=true" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "gh" in analysis.ANALYSIS_SYSTEM_PROMPT
+
+
+def test_build_run_context_markdown_collapses_full_environment(tmp_path: Path) -> None:
+    from failure_analyzer.prompting import build_run_context_markdown
+
+    timed_output_path = tmp_path / "timed-output.log"
+    timed_output_path.write_text("+00000001ms O hello\n+00000002ms E boom\n", encoding="utf-8")
+    markdown = build_run_context_markdown(make_result(timed_output_path=timed_output_path))
+    assert "| Field | Value |" in markdown
+    assert "### Important Environment (redacted)" in markdown
+    assert "- `CI=true`" in markdown
+    assert "- `FAILURE_ANALYZER_CAN_READ_ACTIONS=true`" in markdown
+    assert "- `OPENAI_API_KEY=<redacted>`" in markdown
+    assert "- `FAILURE_ANALYZER_FILES_BASE=https://github.com/example/repo/blob/abc123/`" in markdown
+    assert "<summary>Timed Output Excerpt</summary>" in markdown
+    assert "+00000001ms O hello" in markdown
+    assert "<details>" in markdown
+    assert "<summary>Full Environment (redacted)</summary>" in markdown
 
 
 def test_resolve_model_defaults_to_gpt_5_4_mini(monkeypatch: pytest.MonkeyPatch) -> None:

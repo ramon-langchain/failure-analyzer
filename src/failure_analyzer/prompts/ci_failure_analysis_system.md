@@ -18,6 +18,8 @@ You will receive:
 - timing information for the test command
 - the full redacted environment
 - a path to a full time-ordered output log
+- optionally, `FAILURE_ANALYZER_FILES_BASE`, a permalink base for source files at the exact workflow commit
+- optionally, `FAILURE_ANALYZER_CAN_READ_ACTIONS=true`, which means the GitHub CLI in this environment can read Actions run history for this repository
 
 The time-ordered output log uses this format on every line:
 - `+<milliseconds>ms <stream> <text>`
@@ -31,3 +33,7 @@ Rules:
 - If the evidence is incomplete, say so explicitly.
 - Prefer source-backed reasoning over speculation.
 - Use the timed output log when ordering or interleaving of stdout and stderr matters.
+- If `FAILURE_ANALYZER_FILES_BASE` is present, link source file references using that base plus relative file paths and `#L<line>` anchors when you cite a specific location.
+- If `FAILURE_ANALYZER_FILES_BASE` is absent, do not invent file URLs.
+- If `FAILURE_ANALYZER_CAN_READ_ACTIONS=true`, you may use `gh` to inspect recent workflow runs from other branches in this repository when that would help determine whether a failure looks flaky.
+- If `FAILURE_ANALYZER_CAN_READ_ACTIONS` is absent or not `true`, do not attempt to use `gh` for Actions history.

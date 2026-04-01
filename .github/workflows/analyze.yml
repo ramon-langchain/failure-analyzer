@@ -46,6 +46,7 @@ on:
         required: false
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -75,12 +76,28 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Detect GitHub Actions history access
+        id: gh_access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if command -v gh >/dev/null 2>&1 && \
+             gh auth status >/dev/null 2>&1 && \
+             gh api "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=1" >/dev/null 2>&1; then
+            echo "can_read_actions=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_read_actions=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run failure-analyzer
         id: analyze
         shell: bash
         env:
           FAILURE_ANALYZER_COMMAND: ${{ inputs.command }}
           FAILURE_ANALYZER_MODEL: ${{ inputs.model }}
+          FAILURE_ANALYZER_CAN_READ_ACTIONS: ${{ steps.gh_access.outputs.can_read_actions }}
+          FAILURE_ANALYZER_FILES_BASE: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/
           FAILURE_ANALYZER_OPENAI_API_KEY: ${{ secrets.FAILURE_ANALYZER_OPENAI_API_KEY }}
           FAILURE_ANALYZER_ANTHROPIC_API_KEY: ${{ secrets.FAILURE_ANALYZER_ANTHROPIC_API_KEY }}
           FAILURE_ANALYZER_GOOGLE_API_KEY: ${{ secrets.FAILURE_ANALYZER_GOOGLE_API_KEY }}

@@ -24,6 +24,7 @@ def make_result(exit_code: int = 1) -> TestRunResult:
             "CI": "true",
             "OPENAI_API_KEY": "secret",
             "PATH": "/usr/bin:/bin",
+            "FAILURE_ANALYZER_FILES_BASE": "https://github.com/example/repo/blob/abc123/",
         },
         timed_output_path=Path("/repo/.failure-analyzer/timed-output.log"),
     )
@@ -67,9 +68,13 @@ def test_cli_runs_analysis_and_preserves_exit_code(monkeypatch, tmp_path: Path) 
     report_text = report_file.read_text(encoding="utf-8")
     assert "## Summary\nreport body" in report_text
     assert "## Run Context" in report_text
-    assert "`OPENAI_API_KEY=<redacted>`" not in report_text
-    assert "OPENAI_API_KEY=<redacted>" in report_text
-    assert "Duration: `2500 ms`" in report_text
+    assert "| Field | Value |" in report_text
+    assert "### Important Environment (redacted)" in report_text
+    assert "- `FAILURE_ANALYZER_FILES_BASE=https://github.com/example/repo/blob/abc123/`" in report_text
+    assert "<summary>Timed Output Excerpt</summary>" in report_text
+    assert "<details>" in report_text
+    assert "- `OPENAI_API_KEY=<redacted>`" in report_text
+    assert "| Duration | `2500 ms` |" in report_text
 
 
 def test_cli_accepts_dash_c_for_working_directory(monkeypatch, tmp_path: Path) -> None:
@@ -141,6 +146,10 @@ def test_cli_writes_github_actions_report_and_outputs_path(monkeypatch, tmp_path
     assert "## failure-analyzer Report" in summary_text
     assert "## Summary\nreport body" in summary_text
     assert "## Run Context" in summary_text
+    assert "| Field | Value |" in summary_text
+    assert "### Important Environment (redacted)" in summary_text
+    assert "<summary>Timed Output Excerpt</summary>" in summary_text
+    assert "<details>" in summary_text
 
 
 def test_cli_writes_missing_credentials_summary_in_github_actions(

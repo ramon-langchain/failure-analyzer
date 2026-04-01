@@ -7,6 +7,7 @@ import shlex
 from collections.abc import Mapping
 from datetime import datetime
 from importlib.resources import files
+from pathlib import Path
 from textwrap import dedent
 
 from failure_analyzer.models import TestRunResult
@@ -15,6 +16,34 @@ from failure_analyzer.models import TestRunResult
 PROMPT_RESOURCE = "ci_failure_analysis_system.md"
 REDACTED_ENV_MARKERS = ("KEY", "API", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 STREAM_FORMAT_LEGEND = "`+<milliseconds>ms <stream> <text>`, where `O` means stdout and `E` means stderr."
+IMPORTANT_ENV_NAMES = (
+    "CI",
+    "GITHUB_ACTIONS",
+    "GITHUB_WORKFLOW",
+    "GITHUB_WORKFLOW_REF",
+    "GITHUB_WORKFLOW_SHA",
+    "GITHUB_RUN_ID",
+    "GITHUB_RUN_NUMBER",
+    "GITHUB_RUN_ATTEMPT",
+    "GITHUB_JOB",
+    "GITHUB_REF",
+    "GITHUB_SHA",
+    "RUNNER_OS",
+    "RUNNER_ARCH",
+    "RUNNER_NAME",
+    "FAILURE_ANALYZER_MODEL",
+    "FAILURE_ANALYZER_COMMAND",
+    "FAILURE_ANALYZER_CAN_READ_ACTIONS",
+    "FAILURE_ANALYZER_FILES_BASE",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GOOGLE_API_KEY",
+    "GOOGLE_CLOUD_PROJECT",
+    "FAILURE_ANALYZER_OPENAI_API_KEY",
+    "FAILURE_ANALYZER_ANTHROPIC_API_KEY",
+    "FAILURE_ANALYZER_GOOGLE_API_KEY",
+    "FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT",
+)
 
 
 def load_system_prompt() -> str:
@@ -68,32 +97,72 @@ def format_environment_block(environment: Mapping[str, str]) -> str:
     return "\n".join(lines)
 
 
+def format_important_environment(environment: Mapping[str, str]) -> str:
+    """Format a high-signal subset of environment variables."""
+    if not environment:
+        return "<empty>"
+
+    redacted = redact_environment(environment)
+    lines = [
+        f"- `{name}={redacted[name]}`"
+        for name in IMPORTANT_ENV_NAMES
+        if name in redacted and redacted[name] != ""
+    ]
+    return "\n".join(lines) if lines else "<empty>"
+
+
+def read_timed_output_excerpt(path: Path | None, *, head_lines: int = 12, tail_lines: int = 12) -> str:
+    """Return a compact excerpt from the timed output log."""
+    if path is None:
+        return "<not captured>"
+    if not path.exists():
+        return f"<missing: {path}>"
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines:
+        return "<empty>"
+    if len(lines) <= head_lines + tail_lines:
+        return "\n".join(lines)
+
+    head = lines[:head_lines]
+    tail = lines[-tail_lines:]
+    return "\n".join([*head, "...", *tail])
+
+
 def build_run_context_markdown(result: TestRunResult) -> str:
     """Build the deterministic run-context appendix added to reports."""
     duration_ms = duration_milliseconds(result.started_at, result.finished_at)
     duration_text = f"{duration_ms} ms" if duration_ms is not None else "<unknown>"
     timed_output_path = str(result.timed_output_path) if result.timed_output_path else "<not captured>"
+    important_environment = format_important_environment(result.environment)
     environment_block = format_environment_block(result.environment)
-
-    return dedent(
-        f"""\
-        ## Run Context
-
-        - Exact command: `{format_exact_command(list(result.command))}`
-        - Working directory: `{result.cwd}`
-        - Started at (UTC): `{format_timestamp(result.started_at)}`
-        - Finished at (UTC): `{format_timestamp(result.finished_at)}`
-        - Duration: `{duration_text}`
-        - Timed output file: `{timed_output_path}`
-        - Timed output format: {STREAM_FORMAT_LEGEND}
-
-        ### Environment (redacted)
-
-        ```text
-        {environment_block}
-        ```
-        """
-    ).strip()
+    timed_output_excerpt = read_timed_output_excerpt(result.timed_output_path)
+    return (
+        "## Run Context\n\n"
+        "| Field | Value |\n"
+        "| --- | --- |\n"
+        f"| Exact command | `{format_exact_command(list(result.command))}` |\n"
+        f"| Working directory | `{result.cwd}` |\n"
+        f"| Started at (UTC) | `{format_timestamp(result.started_at)}` |\n"
+        f"| Finished at (UTC) | `{format_timestamp(result.finished_at)}` |\n"
+        f"| Duration | `{duration_text}` |\n"
+        f"| Timed output file | `{timed_output_path}` |\n"
+        f"| Timed output format | {STREAM_FORMAT_LEGEND} |\n\n"
+        "### Important Environment (redacted)\n\n"
+        f"{important_environment}\n\n"
+        "<details>\n"
+        "<summary>Timed Output Excerpt</summary>\n\n"
+        "```text\n"
+        f"{timed_output_excerpt}\n"
+        "```\n"
+        "</details>\n\n"
+        "<details>\n"
+        "<summary>Full Environment (redacted)</summary>\n\n"
+        "```text\n"
+        f"{environment_block}\n"
+        "```\n"
+        "</details>"
+    )
 
 
 def append_run_context(report: str, result: TestRunResult) -> str:
