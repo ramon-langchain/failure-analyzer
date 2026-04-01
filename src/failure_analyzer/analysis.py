@@ -24,6 +24,8 @@ from failure_analyzer.prompting import (
 )
 from failure_analyzer.report_validation import (
     degrade_invalid_markdown,
+    detect_unlinked_symbols,
+    format_symbol_link_feedback,
     format_validation_feedback,
     validate_report_markdown,
 )
@@ -391,6 +393,32 @@ def read_output_file(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+def format_missing_output_feedback(path: Path) -> str:
+    """Build a detailed prompt when the agent failed to produce its output file."""
+    parent_listing = []
+    if path.parent.exists():
+        parent_listing = sorted(child.name for child in path.parent.iterdir())
+    listing_text = "\n".join(f"- {name}" for name in parent_listing) or "<empty directory>"
+    return dedent(
+        f"""\
+        The required output file was not produced or is empty.
+
+        Required file path:
+        ```text
+        {path}
+        ```
+
+        Parent directory contents right now:
+        ```text
+        {listing_text}
+        ```
+
+        Fix this by writing the full final GitHub-flavored Markdown report to the exact required file path above.
+        Do not rely on the chat response. Re-read the path carefully and create or overwrite that exact file.
+        """
+    ).strip()
+
+
 async def stream_agent_status(
     agent: Any,
     *,
@@ -480,7 +508,20 @@ async def analyze_failure(
     report_path.parent.mkdir(parents=True, exist_ok=True)
     await stream_agent_status(agent, prompt=user_prompt, status_sink=status_sink)
 
-    report = read_output_file(report_path)
+    try:
+        report = read_output_file(report_path)
+    except (FileNotFoundError, OSError):
+        emit_status_line(
+            status_sink,
+            "Report file was missing or empty after the initial pass; requesting a focused recovery attempt.",
+        )
+        emit_status_line(status_sink, "Thinking...")
+        await stream_agent_status(
+            agent,
+            prompt=format_missing_output_feedback(report_path),
+            status_sink=status_sink,
+        )
+        report = read_output_file(report_path)
     validation = validate_report_markdown(report, result=result, artifact_dir=artifact_dir)
     attempts = 0
     while not validation.is_valid and attempts < 2:
@@ -492,8 +533,47 @@ async def analyze_failure(
         emit_status_line(status_sink, "Thinking...")
         repair_prompt = format_validation_feedback(validation, report_path)
         await stream_agent_status(agent, prompt=repair_prompt, status_sink=status_sink)
-        report = read_output_file(report_path)
+        try:
+            report = read_output_file(report_path)
+        except (FileNotFoundError, OSError):
+            emit_status_line(
+                status_sink,
+                "Report file was missing or empty after a repair attempt; requesting a focused recovery attempt.",
+            )
+            emit_status_line(status_sink, "Thinking...")
+            await stream_agent_status(
+                agent,
+                prompt=format_missing_output_feedback(report_path),
+                status_sink=status_sink,
+            )
+            report = read_output_file(report_path)
         validation = validate_report_markdown(report, result=result, artifact_dir=artifact_dir)
+
+    if validation.is_valid:
+        symbol_reminder = detect_unlinked_symbols(report)
+        if symbol_reminder.needed:
+            emit_status_line(
+                status_sink,
+                f"Report may have {len(symbol_reminder.symbols)} symbol reference(s) without defining locations; requesting one optional cleanup pass.",
+            )
+            emit_status_line(status_sink, "Thinking...")
+            symbol_prompt = format_symbol_link_feedback(symbol_reminder, report_path)
+            await stream_agent_status(agent, prompt=symbol_prompt, status_sink=status_sink)
+            try:
+                report = read_output_file(report_path)
+            except (FileNotFoundError, OSError):
+                emit_status_line(
+                    status_sink,
+                    "Report file was missing or empty after the symbol-link reminder; requesting a focused recovery attempt.",
+                )
+                emit_status_line(status_sink, "Thinking...")
+                await stream_agent_status(
+                    agent,
+                    prompt=format_missing_output_feedback(report_path),
+                    status_sink=status_sink,
+                )
+                report = read_output_file(report_path)
+            validation = validate_report_markdown(report, result=result, artifact_dir=artifact_dir)
 
     if not validation.is_valid:
         emit_status_line(

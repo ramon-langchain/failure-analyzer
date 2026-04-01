@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import difflib
 import re
 from pathlib import Path
 
@@ -24,6 +25,23 @@ LOG_EXCERPT_FENCE_PATTERN = re.compile(
     r"```logs\s+(?P<path>[^\s`:#]+(?:/[^\s`:#]+)*):(?P<start>\d+)(?:-(?P<end>\d+))?\n(?P<body>.*?)\n```",
     re.DOTALL,
 )
+CODE_FENCE_SPLIT_PATTERN = re.compile(r"(```.*?```)", re.DOTALL)
+SYMBOL_REF_PATTERN = re.compile(r"(?P<tick>`)?(?P<symbol>[A-Z][A-Za-z0-9_]{4,})(?P=tick)?")
+SYMBOL_STOPWORDS = {
+    "Summary",
+    "Root",
+    "Cause",
+    "Evidence",
+    "Likely",
+    "Direction",
+    "Confidence",
+    "GitHub",
+    "Markdown",
+    "Context",
+    "Environment",
+    "Output",
+    "Artifact",
+}
 
 
 @dataclass(slots=True)
@@ -46,6 +64,17 @@ class ValidationResult:
         return not self.issues
 
 
+@dataclass(slots=True)
+class SymbolLinkReminder:
+    """A likely symbol mention that lacks a defining location."""
+
+    symbols: list[str]
+
+    @property
+    def needed(self) -> bool:
+        return bool(self.symbols)
+
+
 def _read_source_lines(path: Path) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines()
 
@@ -56,6 +85,121 @@ def _spans_for(pattern: re.Pattern[str], text: str) -> list[tuple[int, int]]:
 
 def _inside_spans(index: int, spans: list[tuple[int, int]]) -> bool:
     return any(start <= index < end for start, end in spans)
+
+
+def detect_unlinked_symbols(markdown: str) -> SymbolLinkReminder:
+    """Find likely code symbols in prose that do not include a defining location."""
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for part in CODE_FENCE_SPLIT_PATTERN.split(markdown):
+        if part.startswith("```"):
+            continue
+        for match in SYMBOL_REF_PATTERN.finditer(part):
+            symbol = match.group("symbol")
+            if symbol in SYMBOL_STOPWORDS or symbol in seen:
+                continue
+            tick = match.group("tick")
+            if not (
+                tick
+                or symbol.startswith(("Test", "Benchmark", "Example"))
+                or re.search(r"[a-z][A-Z]", symbol)
+                or "_" in symbol
+            ):
+                continue
+            suffix = part[match.end() : match.end() + 48]
+            if re.match(r"\s*\(\s*`[^`]+:\d+(?:-\d+)?`\s*\)", suffix):
+                continue
+            if re.match(r"\s*\([A-Za-z0-9_./-]+\.[A-Za-z0-9_./-]+:\d+(?:-\d+)?\s*\)", suffix):
+                continue
+            seen.add(symbol)
+            symbols.append(symbol)
+    return SymbolLinkReminder(symbols=symbols[:8])
+
+
+def _find_exact_range(lines: list[str], excerpt_lines: list[str]) -> tuple[int, int] | None:
+    if not excerpt_lines or len(excerpt_lines) > len(lines):
+        return None
+    window = len(excerpt_lines)
+    for start_idx in range(0, len(lines) - window + 1):
+        if lines[start_idx : start_idx + window] == excerpt_lines:
+            start_line = start_idx + 1
+            return start_line, start_line + window - 1
+    return None
+
+
+def _preview_diff(expected_lines: list[str], actual_lines: list[str]) -> str:
+    diff = list(
+        difflib.unified_diff(
+            expected_lines,
+            actual_lines,
+            fromfile="expected",
+            tofile="actual",
+            lineterm="",
+            n=1,
+        )
+    )
+    trimmed = [line for line in diff[2:] if line]
+    if not trimmed:
+        return ""
+    return " | ".join(trimmed[:4])
+
+
+def _describe_excerpt_mismatch(
+    *,
+    container_label: str,
+    path_label: str,
+    start: int,
+    end: int,
+    available_lines: list[str],
+    expected_lines: list[str],
+    actual_lines: list[str],
+) -> str:
+    alternate_range = _find_exact_range(available_lines, actual_lines)
+    if alternate_range is not None and alternate_range != (start, end):
+        return (
+            f"{container_label} matches {path_label}:{alternate_range[0]}-{alternate_range[1]} "
+            f"instead of {path_label}:{start}-{end}"
+        )
+    expected_line_count = len(expected_lines)
+    actual_line_count = len(actual_lines)
+
+    if expected_line_count > 0 and actual_line_count == expected_line_count + 1:
+        if actual_lines[:-1] == expected_lines:
+            return (
+                f"excerpt includes 1 extra trailing line; expected {path_label}:{start}-{end} "
+                f"but body matches {path_label}:{start}-{end + 1}"
+            )
+        if actual_lines[1:] == expected_lines:
+            return (
+                f"excerpt includes 1 extra leading line; expected {path_label}:{start}-{end} "
+                f"but body matches {path_label}:{start - 1}-{end}"
+            )
+
+    if actual_line_count + 1 == expected_line_count:
+        if expected_lines[:-1] == actual_lines:
+            return (
+                f"excerpt is missing the final line from {path_label}:{start}-{end}; "
+                f"body only covers {path_label}:{start}-{end - 1}"
+            )
+        if expected_lines[1:] == actual_lines:
+            return (
+                f"excerpt is missing the first line from {path_label}:{start}-{end}; "
+                f"body only covers {path_label}:{start + 1}-{end}"
+            )
+
+    if [line.rstrip() for line in expected_lines] == [line.rstrip() for line in actual_lines]:
+        return (
+            f"{container_label} differs only by trailing whitespace from the referenced lines "
+            f"{path_label}:{start}-{end}"
+        )
+
+    diff_preview = _preview_diff(expected_lines, actual_lines)
+    if diff_preview:
+        return (
+            f"{container_label} does not exactly match the referenced lines {path_label}:{start}-{end}; "
+            f"diff: {diff_preview}"
+        )
+    return f"{container_label} does not exactly match the referenced lines {path_label}:{start}-{end}"
 
 
 def validate_report_markdown(
@@ -201,11 +345,21 @@ def validate_report_markdown(
         expected = "\n".join(lines[start - 1 : end]).rstrip()
         actual = match.group("body").rstrip()
         if expected != actual:
+            expected_lines = lines[start - 1 : end]
+            actual_lines = match.group("body").splitlines()
             issues.append(
                 ValidationIssue(
                     kind="excerpt_fence",
                     reference=reference,
-                    reason="excerpt body does not exactly match the referenced file lines",
+                    reason=_describe_excerpt_mismatch(
+                        container_label="excerpt body",
+                        path_label=resolved,
+                        start=start,
+                        end=end,
+                        available_lines=lines,
+                        expected_lines=expected_lines,
+                        actual_lines=actual_lines,
+                    ),
                 )
             )
 
@@ -250,11 +404,21 @@ def validate_report_markdown(
         expected = "\n".join(lines[start - 1 : end]).rstrip()
         actual = match.group("body").rstrip()
         if expected != actual:
+            expected_lines = lines[start - 1 : end]
+            actual_lines = match.group("body").splitlines()
             issues.append(
                 ValidationIssue(
                     kind="log_excerpt_fence",
                     reference=reference,
-                    reason="log excerpt body does not exactly match the referenced artifact lines",
+                    reason=_describe_excerpt_mismatch(
+                        container_label="log excerpt body",
+                        path_label=raw_path,
+                        start=start,
+                        end=end,
+                        available_lines=lines,
+                        expected_lines=expected_lines,
+                        actual_lines=actual_lines,
+                    ),
                 )
             )
 
@@ -263,6 +427,7 @@ def validate_report_markdown(
 
 def format_validation_feedback(validation: ValidationResult, report_path: Path) -> str:
     """Build a repair prompt for the agent."""
+    current_report = report_path.read_text(encoding="utf-8") if report_path.exists() else "<missing>"
     issue_lines = "\n".join(
         f"- `{issue.reference}`: {issue.reason}"
         for issue in validation.issues
@@ -270,13 +435,37 @@ def format_validation_feedback(validation: ValidationResult, report_path: Path) 
     return (
         f"The Markdown report at `{report_path}` failed validation. "
         "Edit that file in place and fix only the invalid references or excerpt fences below.\n\n"
+        "Current report contents:\n"
+        "```markdown\n"
+        f"{current_report}\n"
+        "```\n\n"
         "Validation errors:\n"
         f"{issue_lines}\n\n"
+        "Re-read the current report file before editing it. Make the smallest possible fixes and avoid broad rewrites. "
+        "Prefer one precise edit per invalid reference or fence. "
         "Keep the report in GitHub-flavored Markdown. "
         "Use plain repo-relative source references like `path/to/file.go:55` or `path/to/file.go:55-70`. "
         "For validated source excerpts, use fences like ```go path/to/file.go#L55-L70. "
         "For validated runtime log excerpts, use fences like ```logs timed-output.log:12-18. "
         "If you cannot support a reference, remove or rewrite it rather than leaving it invalid."
+    )
+
+
+def format_symbol_link_feedback(reminder: SymbolLinkReminder, report_path: Path) -> str:
+    """Build an optional prompt asking for symbol-definition links."""
+    current_report = report_path.read_text(encoding="utf-8") if report_path.exists() else "<missing>"
+    symbol_list = ", ".join(f"`{symbol}`" for symbol in reminder.symbols)
+    return (
+        f"The Markdown report at `{report_path}` looks valid, but it still mentions likely code symbols "
+        f"without defining locations: {symbol_list}.\n\n"
+        "Current report contents:\n"
+        "```markdown\n"
+        f"{current_report}\n"
+        "```\n\n"
+        "If these are real code symbols and you can locate them confidently, edit the report in place and add "
+        "their defining source locations using the preferred format `SymbolName` (`path/to/file.ext:123`). "
+        "If any listed item is not actually a code symbol, or you cannot locate it confidently, you may leave "
+        "the report unchanged. Do not rewrite unrelated parts of the report."
     )
 
 

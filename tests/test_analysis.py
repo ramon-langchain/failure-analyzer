@@ -11,7 +11,11 @@ from failure_analyzer import analysis
 from failure_analyzer.context_builder import append_invocation_context
 from failure_analyzer.deepagents_conventions import DeepAgentsConventions
 from failure_analyzer.models import TestRunResult
-from failure_analyzer.report_validation import validate_report_markdown
+from failure_analyzer.report_validation import (
+    detect_unlinked_symbols,
+    format_validation_feedback,
+    validate_report_markdown,
+)
 
 
 def make_result(**overrides: object) -> TestRunResult:
@@ -81,7 +85,8 @@ def test_system_prompt_is_loaded_from_resource_file() -> None:
     assert "GitHub-flavored Markdown" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "```go path/to/file.go#L55-L70" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "```logs timed-output.log:12-18" in analysis.ANALYSIS_SYSTEM_PROMPT
-    assert "appended `<invocation_context>` section" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "`SymbolName` (`path/to/file.ext:123`)" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "failing test function" in analysis.ANALYSIS_SYSTEM_PROMPT
 
 
 def test_pr_comment_prompt_is_loaded_from_resource_file() -> None:
@@ -308,7 +313,7 @@ def test_validate_report_markdown_rejects_bad_excerpt_and_missing_artifact(tmp_p
     reasons = [issue.reason for issue in validation.issues]
     assert any("outside file length" in reason for reason in reasons)
     assert any("artifact does not exist" in reason for reason in reasons)
-    assert any("does not exactly match" in reason for reason in reasons)
+    assert any("diff:" in reason for reason in reasons)
 
 
 def test_validate_report_markdown_rejects_bad_log_excerpt_fence(tmp_path: Path) -> None:
@@ -329,6 +334,86 @@ def test_validate_report_markdown_rejects_bad_log_excerpt_fence(tmp_path: Path) 
     validation = validate_report_markdown(markdown, result=result, artifact_dir=artifact_dir)
     assert validation.is_valid is False
     assert any(issue.kind == "log_excerpt_fence" for issue in validation.issues)
+
+
+def test_detect_unlinked_symbols_finds_bare_symbol_references() -> None:
+    reminder = detect_unlinked_symbols(
+        "## Summary\n`TestWaitForDeliveryHonorsFullTimeout` fails while `WaitForDelivery` times out.\n"
+        "The report already links `TaxCents` (`pkg/pricing.go:3`).\n"
+    )
+
+    assert reminder.symbols == [
+        "TestWaitForDeliveryHonorsFullTimeout",
+        "WaitForDelivery",
+    ]
+
+
+def test_format_validation_feedback_includes_current_report(tmp_path: Path) -> None:
+    report_path = tmp_path / "report.md"
+    report_path.write_text("## Summary\nBroken report\n", encoding="utf-8")
+    workspace = tmp_path / "repo"
+    artifact_dir = tmp_path / "artifacts"
+    source_file = workspace / "pkg" / "pricing.go"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("package pkg\n\nfunc Tax() int {\n\treturn 91\n}\n", encoding="utf-8")
+    result = make_result(cwd=workspace, environment={"GITHUB_WORKSPACE": str(workspace)})
+    markdown = "See pkg/pricing.go:99.\n"
+
+    validation = validate_report_markdown(markdown, result=result, artifact_dir=artifact_dir)
+    feedback = format_validation_feedback(validation, report_path)
+
+    assert "Current report contents:" in feedback
+    assert "## Summary\nBroken report" in feedback
+    assert "pkg/pricing.go:99" in feedback
+
+
+def test_validate_report_markdown_suggests_alternate_excerpt_range(tmp_path: Path) -> None:
+    workspace = tmp_path / "repo"
+    artifact_dir = tmp_path / "artifacts"
+    source_file = workspace / "pkg" / "pricing.go"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text(
+        "package pkg\n\nfunc Tax() int {\n\treturn 91\n}\n\nfunc Shipping() int {\n\treturn 599\n}\n",
+        encoding="utf-8",
+    )
+
+    result = make_result(cwd=workspace, environment={"GITHUB_WORKSPACE": str(workspace)})
+    markdown = (
+        "```go pkg/pricing.go#L3-L5\n"
+        "func Shipping() int {\n\treturn 599\n}\n"
+        "```\n"
+    )
+
+    validation = validate_report_markdown(markdown, result=result, artifact_dir=artifact_dir)
+
+    assert validation.is_valid is False
+    assert any(
+        "matches pkg/pricing.go:7-9 instead of pkg/pricing.go:3-5" in issue.reason
+        for issue in validation.issues
+    )
+
+
+def test_validate_report_markdown_reports_extra_trailing_log_line(tmp_path: Path) -> None:
+    workspace = tmp_path / "repo"
+    artifact_dir = tmp_path / "artifacts"
+    artifact_file = artifact_dir / "timed-output.log"
+    workspace.mkdir()
+    artifact_dir.mkdir()
+    artifact_file.write_text("l1\nl2\nl3\nl4\n", encoding="utf-8")
+    result = make_result(cwd=workspace, environment={"GITHUB_WORKSPACE": str(workspace)})
+    markdown = (
+        "```logs timed-output.log:2-3\n"
+        "l2\nl3\nl4\n"
+        "```\n"
+    )
+
+    validation = validate_report_markdown(markdown, result=result, artifact_dir=artifact_dir)
+
+    assert validation.is_valid is False
+    assert any(
+        "matches timed-output.log:2-4 instead of timed-output.log:2-3" in issue.reason
+        for issue in validation.issues
+    )
 
 
 def test_resolve_model_defaults_to_gpt_5_4_mini(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -491,6 +576,12 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
     class FakeLocalShellBackend(FakeFilesystemBackend):
         pass
 
+    class FakeLocalShellBackend(FakeFilesystemBackend):
+        pass
+
+    class FakeLocalShellBackend(FakeFilesystemBackend):
+        pass
+
     def fake_create_deep_agent(**kwargs: object) -> FakeAgent:
         captured_kwargs.update(kwargs)
         return FakeAgent()
@@ -566,6 +657,9 @@ async def test_generate_pr_comment_returns_single_line_text(monkeypatch: pytest.
         def __init__(self, **_: object) -> None:
             pass
 
+    class FakeLocalShellBackend(FakeFilesystemBackend):
+        pass
+
     def fake_create_deep_agent(**kwargs: object) -> FakeAgent:
         captured_kwargs.update(kwargs)
         return FakeAgent()
@@ -574,7 +668,10 @@ async def test_generate_pr_comment_returns_single_line_text(monkeypatch: pytest.
     import types
 
     deepagents_module = types.SimpleNamespace(create_deep_agent=fake_create_deep_agent)
-    backends_module = types.SimpleNamespace(FilesystemBackend=FakeFilesystemBackend)
+    backends_module = types.SimpleNamespace(
+        FilesystemBackend=FakeFilesystemBackend,
+        LocalShellBackend=FakeLocalShellBackend,
+    )
     monkeypatch.setitem(sys.modules, "deepagents", deepagents_module)
     monkeypatch.setitem(sys.modules, "deepagents.backends", backends_module)
     monkeypatch.setattr(
@@ -691,3 +788,96 @@ async def test_analyze_failure_repairs_invalid_report(monkeypatch: pytest.Monkey
 
     assert "Fixed report citing pkg/pricing.go:3-5" in result.report_markdown
     assert any("failed validation" in prompt for prompt in prompts[1:])
+    assert any("Make the smallest possible fixes" in prompt for prompt in prompts[1:])
+
+
+@pytest.mark.asyncio
+async def test_analyze_failure_requests_one_symbol_link_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "report.md"
+    artifact_dir = tmp_path / "artifacts"
+    workspace = tmp_path / "repo"
+    source_file = workspace / "pkg" / "pricing.go"
+    test_file = workspace / "pkg" / "pricing_test.go"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("package pkg\n\nfunc Tax() int {\n\treturn 91\n}\n", encoding="utf-8")
+    test_file.write_text(
+        "package pkg\n\nfunc TestTaxRounding(t *testing.T) {\n\t// omitted\n}\n",
+        encoding="utf-8",
+    )
+    prompts: list[str] = []
+
+    class FakeAgent:
+        async def astream(self, payload, **_kwargs):
+            prompt = payload["messages"][0]["content"]
+            prompts.append(prompt)
+            if "looks valid, but it still mentions likely code symbols" in prompt:
+                report_path.write_text(
+                    "## Summary\n`TestTaxRounding` (`pkg/pricing_test.go:3`) fails because `Tax` (`pkg/pricing.go:3`) rounds incorrectly.\n\n"
+                    "## Root Cause\nMismatch.\n\n"
+                    "## Evidence\npkg/pricing.go:3-5\n\n"
+                    "## Likely Fix Direction\nAdjust the implementation.\n",
+                    encoding="utf-8",
+                )
+            else:
+                report_path.write_text(
+                    "## Summary\n`TestTaxRounding` fails because `Tax` rounds incorrectly.\n\n"
+                    "## Root Cause\nMismatch.\n\n"
+                    "## Evidence\npkg/pricing.go:3-5\n\n"
+                    "## Likely Fix Direction\nAdjust the implementation.\n",
+                    encoding="utf-8",
+                )
+            yield ("values", {"messages": []})
+
+    class FakeFilesystemBackend:
+        def __init__(self, **_: object) -> None:
+            pass
+
+    class FakeLocalShellBackend(FakeFilesystemBackend):
+        pass
+
+    def fake_create_deep_agent(**_kwargs: object) -> FakeAgent:
+        return FakeAgent()
+
+    import sys
+    import types
+
+    deepagents_module = types.SimpleNamespace(create_deep_agent=fake_create_deep_agent)
+    backends_module = types.SimpleNamespace(
+        FilesystemBackend=FakeFilesystemBackend,
+        LocalShellBackend=FakeLocalShellBackend,
+    )
+    monkeypatch.setitem(sys.modules, "deepagents", deepagents_module)
+    monkeypatch.setitem(sys.modules, "deepagents.backends", backends_module)
+    monkeypatch.setattr(
+        analysis,
+        "load_deepagents_conventions",
+        lambda _repo_root: DeepAgentsConventions(
+            user_cwd=workspace,
+            project_root=workspace,
+            agent_name="failure-analyzer",
+            memory_sources=[],
+            skill_sources=[],
+        ),
+    )
+
+    result = await analysis.analyze_failure(
+        make_result(
+            cwd=workspace,
+            environment={"GITHUB_WORKSPACE": str(workspace), "OPENAI_API_KEY": "secret"},
+        ),
+        repo_root=workspace,
+        report_path=report_path,
+        artifact_dir=artifact_dir,
+        model="openai:gpt-5",
+        custom_instructions=None,
+        max_output_bytes=1024,
+        enable_shell_analysis=False,
+        allow_rerun=False,
+        status_sink=io.StringIO(),
+    )
+
+    assert "`TestTaxRounding` (`pkg/pricing_test.go:3`)" in result.report_markdown
+    assert sum("likely code symbols" in prompt for prompt in prompts) == 1
