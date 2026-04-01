@@ -76,6 +76,20 @@ def load_pr_comment_prompt() -> str:
     )
 
 
+def append_custom_instructions(system_prompt: str, custom_instructions: str | None) -> str:
+    """Append user-provided instructions in a higher-priority tagged section."""
+    if not custom_instructions or not custom_instructions.strip():
+        return system_prompt
+
+    return (
+        f"{system_prompt.rstrip()}\n\n"
+        "<user_override_instructions>\n"
+        "These user-provided instructions supersede any conflicting built-in instructions above.\n\n"
+        f"{custom_instructions.strip()}\n"
+        "</user_override_instructions>\n"
+    )
+
+
 def format_exact_command(command: tuple[str, ...] | list[str]) -> str:
     """Render a shell-safe command string for display."""
     return shlex.join(command)

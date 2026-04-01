@@ -60,6 +60,8 @@ def test_render_user_prompt_includes_failure_context() -> None:
 
 
 def test_system_prompt_is_loaded_from_resource_file() -> None:
+    assert "<agent_identity>" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "<analysis_rules>" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "time-ordered output log" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "O` means stdout" in analysis.ANALYSIS_SYSTEM_PROMPT
     assert "FAILURE_ANALYZER_FILES_BASE" in analysis.ANALYSIS_SYSTEM_PROMPT
@@ -70,8 +72,18 @@ def test_system_prompt_is_loaded_from_resource_file() -> None:
 
 
 def test_pr_comment_prompt_is_loaded_from_resource_file() -> None:
+    assert "<output_requirements>" in analysis.PR_COMMENT_SYSTEM_PROMPT
     assert "exactly one paragraph" in analysis.PR_COMMENT_SYSTEM_PROMPT
     assert "Do not include a \"full analysis\" link" in analysis.PR_COMMENT_SYSTEM_PROMPT
+
+
+def test_append_custom_instructions_adds_override_section() -> None:
+    from failure_analyzer.prompting import append_custom_instructions
+
+    combined = append_custom_instructions("<base>Prompt</base>", "Prefer logs over code.")
+    assert "<user_override_instructions>" in combined
+    assert "supersede any conflicting built-in instructions" in combined
+    assert "Prefer logs over code." in combined
 
 
 def test_build_run_context_markdown_collapses_full_environment(tmp_path: Path) -> None:
@@ -342,6 +354,7 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
         make_result(),
         repo_root=Path("/repo"),
         model="openai:gpt-5",
+        custom_instructions="Prefer precise source references.",
         max_output_bytes=1024,
         enable_shell_analysis=False,
         status_sink=sink,
@@ -355,6 +368,7 @@ async def test_analyze_failure_returns_agent_report(monkeypatch: pytest.MonkeyPa
     assert captured_kwargs["memory"] == ["/repo/.deepagents/AGENTS.md"]
     assert captured_kwargs["skills"] == ["/repo/.deepagents/skills"]
     assert captured_kwargs["name"] == "failure-analyzer"
+    assert "Prefer precise source references." in str(captured_kwargs["system_prompt"])
 
 
 @pytest.mark.asyncio
@@ -404,8 +418,10 @@ async def test_generate_pr_comment_returns_single_line_text(monkeypatch: pytest.
         command=("go", "test", "./..."),
         repo_root=Path("/repo"),
         model="openai:gpt-5",
+        custom_instructions="Mention confidence only if low.",
         run_url="https://github.com/example/repo/actions/runs/123",
     )
 
     assert comment == "Root cause is bad rounding in pricing plus free-shipping threshold logic."
     assert captured_kwargs["name"] == "failure-analyzer-pr-comment"
+    assert "Mention confidence only if low." in str(captured_kwargs["system_prompt"])

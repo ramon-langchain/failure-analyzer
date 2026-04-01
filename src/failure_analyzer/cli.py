@@ -57,6 +57,7 @@ async def _async_main(
     *,
     command: tuple[str, ...],
     model: str | None,
+    instructions: str | None,
     work_dir: Path,
     report_file: Path | None,
     max_output_bytes: int,
@@ -81,6 +82,7 @@ async def _async_main(
                 result,
                 repo_root=work_dir,
                 model=model,
+                custom_instructions=instructions,
                 max_output_bytes=max_output_bytes,
                 enable_shell_analysis=enable_shell_analysis,
             )
@@ -118,6 +120,7 @@ async def _async_main(
                     command=result.command,
                     repo_root=work_dir,
                     model=model,
+                    custom_instructions=instructions,
                     run_url=os.environ["FAILURE_ANALYZER_RUN_URL"],
                 )
             except Exception as exc:
@@ -191,6 +194,11 @@ async def _async_main(
 )
 @click.option("--model", metavar="TEXT", help="LLM identifier, for example openai:gpt-5.")
 @click.option(
+    "--instructions",
+    metavar="TEXT",
+    help="Additional system instructions appended as higher-priority overrides.",
+)
+@click.option(
     "-C",
     type=click.Path(path_type=Path, file_okay=False, resolve_path=True),
     default=Path.cwd,
@@ -218,6 +226,7 @@ async def _async_main(
 @click.argument("command", nargs=-1, type=click.UNPROCESSED)
 def cli(
     model: str | None,
+    instructions: str | None,
     c: Path,
     report_file: Path | None,
     max_output_bytes: int,
@@ -233,6 +242,7 @@ def cli(
         _async_main(
             command=command,
             model=model,
+            instructions=instructions,
             work_dir=c,
             report_file=report_file,
             max_output_bytes=max_output_bytes,

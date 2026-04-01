@@ -34,6 +34,8 @@ jobs:
     with:
       command: go test ./...
       go-version: "1.24.13"
+      instructions: |
+        Focus on flaky-test evidence first.
 ```
 
 Inside the reusable workflow, `failure-analyzer` is installed from the same commit as the workflow itself, so the workflow definition and tool code stay in sync.
@@ -77,6 +79,7 @@ Optional inputs:
 - `go-version`
 - `python-version`
 - `model`
+- `instructions`
 - `flags`
 
 The reusable workflow writes the full Markdown analysis to the GitHub Actions job summary automatically and preserves the wrapped command's exit code.

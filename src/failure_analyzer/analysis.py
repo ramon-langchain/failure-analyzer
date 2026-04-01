@@ -13,6 +13,7 @@ from failure_analyzer.deepagents_conventions import load_deepagents_conventions
 from failure_analyzer.models import AnalysisRequest, AnalysisResult, TestRunResult
 from failure_analyzer.prompting import (
     STREAM_FORMAT_LEGEND,
+    append_custom_instructions,
     format_environment_block,
     format_exact_command,
     format_timestamp,
@@ -333,6 +334,7 @@ async def analyze_failure(
     *,
     repo_root: Path,
     model: str | None,
+    custom_instructions: str | None,
     max_output_bytes: int,
     enable_shell_analysis: bool,
     status_sink: IO[str] | None = None,
@@ -368,7 +370,7 @@ async def analyze_failure(
     agent = create_deep_agent(
         model=resolve_model(model),
         tools=[],
-        system_prompt=ANALYSIS_SYSTEM_PROMPT,
+        system_prompt=append_custom_instructions(ANALYSIS_SYSTEM_PROMPT, custom_instructions),
         backend=backend,
         memory=conventions.memory_sources or None,
         skills=conventions.skill_sources or None,
@@ -446,6 +448,7 @@ async def generate_pr_comment(
     command: tuple[str, ...],
     repo_root: Path,
     model: str | None,
+    custom_instructions: str | None,
     run_url: str,
     status_sink: IO[str] | None = None,
 ) -> str:
@@ -459,7 +462,7 @@ async def generate_pr_comment(
     agent = create_deep_agent(
         model=resolve_model(model),
         tools=[],
-        system_prompt=PR_COMMENT_SYSTEM_PROMPT,
+        system_prompt=append_custom_instructions(PR_COMMENT_SYSTEM_PROMPT, custom_instructions),
         backend=backend,
         memory=conventions.memory_sources or None,
         skills=conventions.skill_sources or None,

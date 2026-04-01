@@ -51,10 +51,13 @@ def test_cli_skips_analysis_for_success(monkeypatch) -> None:
 
 
 def test_cli_runs_analysis_and_preserves_exit_code(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
     async def fake_run_test_command(*args, **kwargs):
         return make_result(exit_code=7)
 
     async def fake_analyze_failure(*args, **kwargs):
+        captured["custom_instructions"] = kwargs.get("custom_instructions")
         return AnalysisResult(
             report_markdown="## Summary\nreport body",
             used_truncation=False,
@@ -66,8 +69,20 @@ def test_cli_runs_analysis_and_preserves_exit_code(monkeypatch, tmp_path: Path) 
 
     report_file = tmp_path / "report.md"
     runner = CliRunner()
-    result = runner.invoke(cli, ["--report-file", str(report_file), "go", "test", "./..."])
+    result = runner.invoke(
+        cli,
+        [
+            "--instructions",
+            "Prefer reproduction steps.",
+            "--report-file",
+            str(report_file),
+            "go",
+            "test",
+            "./...",
+        ],
+    )
     assert result.exit_code == 7
+    assert captured["custom_instructions"] == "Prefer reproduction steps."
     assert "## Summary\nreport body" in result.output
     report_text = report_file.read_text(encoding="utf-8")
     assert "## Summary\nreport body" in report_text
