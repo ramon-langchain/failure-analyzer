@@ -28,6 +28,11 @@ async def test_run_test_command_captures_stdout_and_stderr() -> None:
     assert result.stderr == "oops\n"
     assert stdout_sink.getvalue() == "hello\n"
     assert stderr_sink.getvalue() == "oops\n"
+    assert result.timed_output_path is not None
+    timed_output = result.timed_output_path.read_text(encoding="utf-8")
+    assert " O hello" in timed_output
+    assert " E oops" in timed_output
+    assert result.environment
 
 
 @pytest.mark.asyncio
@@ -43,3 +48,6 @@ async def test_run_test_command_returns_127_for_missing_binary() -> None:
     assert result.exit_code == 127
     assert "Command not found" in result.stderr
     assert "definitely-not-a-real-command" in stderr_sink.getvalue()
+    assert result.timed_output_path is not None
+    timed_output = result.timed_output_path.read_text(encoding="utf-8")
+    assert " E Command not found: definitely-not-a-real-command" in timed_output

@@ -11,14 +11,19 @@ from dotenv import load_dotenv
 from failure_analyzer.analysis import (
     analyze_failure,
     build_fallback_report,
-    build_missing_credentials_summary,
-    has_any_provider_credentials,
+    SUPPORTED_SECRET_NAMES,
 )
 from failure_analyzer.github_actions import (
     append_step_summary,
     default_report_path,
     export_report_path,
     is_github_actions,
+)
+from failure_analyzer.prompting import (
+    append_run_context,
+    build_missing_credentials_summary,
+    build_run_context_markdown,
+    has_any_provider_credentials,
 )
 from failure_analyzer.runner import run_test_command
 
@@ -39,8 +44,8 @@ async def _async_main(
         return 0
 
     missing_credentials_summary = None
-    if is_github_actions() and not has_any_provider_credentials():
-        missing_credentials_summary = build_missing_credentials_summary()
+    if is_github_actions() and not has_any_provider_credentials(SUPPORTED_SECRET_NAMES):
+        missing_credentials_summary = build_missing_credentials_summary(SUPPORTED_SECRET_NAMES)
 
     was_streamed = False
     if missing_credentials_summary is None:
@@ -69,6 +74,11 @@ async def _async_main(
                 err=True,
             )
 
+    run_context_markdown = ""
+    if missing_credentials_summary is None:
+        report = append_run_context(report, result)
+        run_context_markdown = build_run_context_markdown(result)
+
     github_report_handled = False
     if is_github_actions():
         if report_file is None and missing_credentials_summary is None:
@@ -94,6 +104,9 @@ async def _async_main(
     if not was_streamed and missing_credentials_summary is None:
         click.echo("", err=True)
         click.echo(report, err=True)
+    elif was_streamed and run_context_markdown:
+        click.echo("", err=True)
+        click.echo(run_context_markdown, err=True)
 
     if report_file is not None and not github_report_handled:
         report_file.parent.mkdir(parents=True, exist_ok=True)

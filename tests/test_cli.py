@@ -18,8 +18,14 @@ def make_result(exit_code: int = 1) -> TestRunResult:
         exit_code=exit_code,
         stdout="stdout text\n",
         stderr="stderr text\n",
-        started_at=datetime.now(timezone.utc),
-        finished_at=datetime.now(timezone.utc),
+        started_at=datetime(2026, 4, 1, 7, 0, 0, tzinfo=timezone.utc),
+        finished_at=datetime(2026, 4, 1, 7, 0, 2, 500000, tzinfo=timezone.utc),
+        environment={
+            "CI": "true",
+            "OPENAI_API_KEY": "secret",
+            "PATH": "/usr/bin:/bin",
+        },
+        timed_output_path=Path("/repo/.failure-analyzer/timed-output.log"),
     )
 
 
@@ -58,7 +64,12 @@ def test_cli_runs_analysis_and_preserves_exit_code(monkeypatch, tmp_path: Path) 
     result = runner.invoke(cli, ["--report-file", str(report_file), "go", "test", "./..."])
     assert result.exit_code == 7
     assert "## Summary\nreport body" in result.output
-    assert report_file.read_text(encoding="utf-8") == "## Summary\nreport body"
+    report_text = report_file.read_text(encoding="utf-8")
+    assert "## Summary\nreport body" in report_text
+    assert "## Run Context" in report_text
+    assert "`OPENAI_API_KEY=<redacted>`" not in report_text
+    assert "OPENAI_API_KEY=<redacted>" in report_text
+    assert "Duration: `2500 ms`" in report_text
 
 
 def test_cli_accepts_dash_c_for_working_directory(monkeypatch, tmp_path: Path) -> None:
@@ -93,6 +104,7 @@ def test_cli_emits_fallback_report_when_analysis_fails(monkeypatch) -> None:
     assert result.exit_code == 2
     assert "Analyzer failed: RuntimeError: boom" in result.output
     assert "fallback report" in result.output.lower()
+    assert "## Run Context" in result.output
 
 
 def test_cli_writes_github_actions_report_and_outputs_path(monkeypatch, tmp_path: Path) -> None:
@@ -121,11 +133,14 @@ def test_cli_writes_github_actions_report_and_outputs_path(monkeypatch, tmp_path
     runner = CliRunner()
     result = runner.invoke(cli, ["--verbose", "go", "test", "./..."])
     assert result.exit_code == 9
-    assert report_file.read_text(encoding="utf-8") == "## Summary\nreport body"
+    report_text = report_file.read_text(encoding="utf-8")
+    assert "## Summary\nreport body" in report_text
+    assert "## Run Context" in report_text
     assert f"{REPORT_OUTPUT_NAME}={report_file}" in output_file.read_text(encoding="utf-8")
     summary_text = summary_file.read_text(encoding="utf-8")
     assert "## failure-analyzer Report" in summary_text
     assert "## Summary\nreport body" in summary_text
+    assert "## Run Context" in summary_text
 
 
 def test_cli_writes_missing_credentials_summary_in_github_actions(

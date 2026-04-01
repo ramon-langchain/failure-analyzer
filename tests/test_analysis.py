@@ -17,8 +17,14 @@ def make_result(**overrides: object) -> TestRunResult:
         "exit_code": 1,
         "stdout": "ok package/a\n",
         "stderr": "FAIL package/b\npanic: boom\n",
-        "started_at": datetime.now(timezone.utc),
-        "finished_at": datetime.now(timezone.utc),
+        "started_at": datetime(2026, 4, 1, 7, 0, 0, tzinfo=timezone.utc),
+        "finished_at": datetime(2026, 4, 1, 7, 0, 5, tzinfo=timezone.utc),
+        "environment": {
+            "CI": "true",
+            "OPENAI_API_KEY": "secret",
+            "PATH": "/usr/bin:/bin",
+        },
+        "timed_output_path": Path("/tmp/failure-analyzer/timed-output.log"),
     }
     base.update(overrides)
     return TestRunResult(**base)
@@ -45,6 +51,14 @@ def test_render_user_prompt_includes_failure_context() -> None:
     assert "go test ./..." in prompt
     assert "Exit code: `1`" in prompt
     assert "panic: boom" in prompt
+    assert "/tmp/failure-analyzer/timed-output.log" in prompt
+    assert "OPENAI_API_KEY=<redacted>" in prompt
+    assert "Duration: `5000 ms`" in prompt
+
+
+def test_system_prompt_is_loaded_from_resource_file() -> None:
+    assert "time-ordered output log" in analysis.ANALYSIS_SYSTEM_PROMPT
+    assert "O` means stdout" in analysis.ANALYSIS_SYSTEM_PROMPT
 
 
 def test_resolve_model_defaults_to_gpt_5_4_mini(monkeypatch: pytest.MonkeyPatch) -> None:

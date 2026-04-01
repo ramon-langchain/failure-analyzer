@@ -11,5 +11,6 @@ __pycache__/
 build/
 dist/
 artifacts/
+.failure-analyzer/
 
 .DS_Store

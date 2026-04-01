@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from datetime import datetime
 from pathlib import Path
 
@@ -20,6 +21,8 @@ class TestRunResult:
     stderr: str
     started_at: datetime
     finished_at: datetime
+    environment: dict[str, str] = field(default_factory=dict)
+    timed_output_path: Path | None = None
 
     @property
     def combined_output(self) -> str:
@@ -48,6 +51,10 @@ class AnalysisRequest:
     stdout: str
     stderr: str
     combined_output: str
+    environment: dict[str, str] = field(default_factory=dict)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    timed_output_path: Path | None = None
     max_output_bytes: int = 120_000
     enable_shell_analysis: bool = True
 

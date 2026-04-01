@@ -10,6 +10,13 @@ from typing import IO
 from typing import Any
 
 from failure_analyzer.models import AnalysisRequest, AnalysisResult, TestRunResult
+from failure_analyzer.prompting import (
+    STREAM_FORMAT_LEGEND,
+    format_environment_block,
+    format_exact_command,
+    format_timestamp,
+    load_system_prompt,
+)
 
 DEFAULT_MODEL = "openai:gpt-5.4-mini"
 MODEL_ENV_VAR = "FAILURE_ANALYZER_MODEL"
@@ -40,31 +47,7 @@ SUPPORTED_SECRET_NAMES = (
     *VERTEX_SECRET_NAMES,
 )
 
-ANALYSIS_SYSTEM_PROMPT = dedent(
-    """\
-    You are a CI failure analysis agent.
-
-    Your purpose is to investigate a failed CI test run and produce the clearest possible explanation of why it failed. The command's non-zero exit code is ground truth.
-
-    You are expected to run in a throwaway GitHub Actions environment. Use the available filesystem and shell access freely when it helps explain the failure. You may inspect project files and any other host files that are accessible to your process when they are relevant. When shell analysis is enabled, you may run additional diagnostic shell commands from the working directory or elsewhere on the host if useful.
-
-    Do not make commits. Do not push changes.
-
-    Return Markdown with exactly these sections:
-    ## Summary
-    ## Root Cause
-    ## Evidence
-    ## Likely Fix Direction
-    ## Confidence
-
-    Rules:
-    - Be concise and specific.
-    - Quote exact error messages when they are load-bearing.
-    - Distinguish the surface symptom from the underlying cause.
-    - If the evidence is incomplete, say so explicitly.
-    - Prefer source-backed reasoning over speculation.
-    """
-)
+ANALYSIS_SYSTEM_PROMPT = load_system_prompt()
 
 
 def resolve_model(model: str | None) -> str:
@@ -90,33 +73,6 @@ def resolve_model(model: str | None) -> str:
 def _get_env(name: str) -> str | None:
     """Read prefixed failure-analyzer env vars before the default provider vars."""
     return os.environ.get(f"FAILURE_ANALYZER_{name}") or os.environ.get(name)
-
-
-def has_any_provider_credentials() -> bool:
-    """Return True when any supported provider credential is configured."""
-    return any(os.environ.get(name) for name in SUPPORTED_SECRET_NAMES)
-
-
-def build_missing_credentials_summary() -> str:
-    """Return a short GitHub Actions summary for missing provider credentials."""
-    secret_list = "\n".join(f"- `{name}`" for name in SUPPORTED_SECRET_NAMES)
-    return dedent(
-        f"""\
-        ## failure-analyzer setup required
-
-        No supported model credentials were configured for this workflow run.
-
-        Add one repository or organization Actions secret with one of these exact names:
-
-        {secret_list}
-
-        Where to add it:
-        1. Open the caller repository on GitHub.
-        2. Go to `Settings` -> `Secrets and variables` -> `Actions`.
-        3. Create a repository secret with one of the names above.
-        4. Re-run this workflow.
-        """
-    )
 
 
 def truncate_text(text: str, *, max_bytes: int) -> tuple[str, bool]:
@@ -155,6 +111,10 @@ def build_analysis_request(
         stdout=result.stdout,
         stderr=result.stderr,
         combined_output=combined_output,
+        environment=result.environment,
+        started_at=result.started_at,
+        finished_at=result.finished_at,
+        timed_output_path=result.timed_output_path,
         max_output_bytes=max_output_bytes,
         enable_shell_analysis=enable_shell_analysis,
     )
@@ -170,18 +130,37 @@ def render_user_prompt(request: AnalysisRequest) -> tuple[str, bool]:
     )
 
     shell_mode = "enabled" if request.enable_shell_analysis else "disabled"
+    duration_ms = (
+        int((request.finished_at - request.started_at).total_seconds() * 1000)
+        if request.started_at is not None and request.finished_at is not None
+        else None
+    )
+    duration_text = f"{duration_ms} ms" if duration_ms is not None else "<unknown>"
+    timed_output_path = request.timed_output_path or Path("<not captured>")
+    environment_block = format_environment_block(request.environment)
     prompt = dedent(
         f"""\
         Analyze this failed test run.
 
         - Working directory: `{request.repo_root}`
-        - Command: `{" ".join(request.command)}`
+        - Exact command: `{format_exact_command(list(request.command))}`
         - Exit code: `{request.exit_code}`
+        - Started at (UTC): `{format_timestamp(request.started_at)}`
+        - Finished at (UTC): `{format_timestamp(request.finished_at)}`
+        - Duration: `{duration_text}`
         - Shell-based diagnostics: {shell_mode}
+        - Full timed output file: `{timed_output_path}`
+        - Timed output format: {STREAM_FORMAT_LEGEND}
 
         The exit code is the ground truth. Explain why the test failed. You may inspect files outside the working directory if they are relevant and accessible on the host.
 
-        ### Combined Output
+        ### Environment (redacted)
+
+        ```text
+        {environment_block}
+        ```
+
+        ### Output Preview
 
         ```text
         {combined_text}
