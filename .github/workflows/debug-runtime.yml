@@ -120,3 +120,18 @@ jobs:
           if command -v go >/dev/null 2>&1; then go version; fi
           if command -v node >/dev/null 2>&1; then node --version; fi
           if command -v npm >/dev/null 2>&1; then npm --version; fi
+
+      - name: Check GitHub CLI and auth
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "== gh =="
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            echo
+            echo "== gh auth status =="
+            gh auth status || true
+          else
+            echo "gh not installed"
+          fi
