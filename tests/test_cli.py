@@ -35,6 +35,8 @@ def make_result(exit_code: int = 1) -> TestRunResult:
 
 
 def test_cli_skips_analysis_for_success(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
     async def fake_run_test_command(*args, **kwargs):
         return make_result(exit_code=0)
 
@@ -51,6 +53,8 @@ def test_cli_skips_analysis_for_success(monkeypatch) -> None:
 
 
 def test_cli_runs_analysis_and_preserves_exit_code(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
     captured: dict[str, object] = {}
 
     async def fake_run_test_command(*args, **kwargs):
@@ -104,6 +108,8 @@ def test_cli_runs_analysis_and_preserves_exit_code(monkeypatch, tmp_path: Path) 
 
 
 def test_cli_accepts_dash_c_for_working_directory(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
     captured: dict[str, object] = {}
 
     async def fake_run_test_command(command, *, cwd, **kwargs):
@@ -121,6 +127,8 @@ def test_cli_accepts_dash_c_for_working_directory(monkeypatch, tmp_path: Path) -
 
 
 def test_cli_emits_fallback_report_when_analysis_fails(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
     async def fake_run_test_command(*args, **kwargs):
         return make_result(exit_code=2)
 
@@ -139,6 +147,8 @@ def test_cli_emits_fallback_report_when_analysis_fails(monkeypatch) -> None:
 
 
 def test_cli_can_disable_exit_code_preservation(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
     async def fake_run_test_command(*args, **kwargs):
         return make_result(exit_code=5)
 
@@ -313,6 +323,8 @@ def test_cli_writes_missing_credentials_summary_in_github_actions(
 
 
 def test_cli_reports_langsmith_tracing_when_enabled(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
     async def fake_run_test_command(*args, **kwargs):
         return make_result(exit_code=0)
 
