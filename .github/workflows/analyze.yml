@@ -32,6 +32,11 @@ on:
         required: false
         default: ""
         type: string
+      langsmith-project:
+        description: Optional LangSmith project name used when LangSmith tracing is enabled.
+        required: false
+        default: ""
+        type: string
       allow-rerun:
         description: Allow the analyzer to rerun the test command or narrowed variants with short timeouts.
         required: false
@@ -58,6 +63,10 @@ on:
       FAILURE_ANALYZER_GOOGLE_API_KEY:
         required: false
       FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT:
+        required: false
+      LANGSMITH_API_KEY:
+        required: false
+      FAILURE_ANALYZER_LANGSMITH_API_KEY:
         required: false
 
 jobs:
@@ -278,16 +287,19 @@ jobs:
           FAILURE_ANALYZER_CAN_COMMENT_PR: ${{ steps.pr_comment_access.outputs.can_comment_pr }}
           FAILURE_ANALYZER_PR_NUMBER: ${{ github.event.pull_request.number || '' }}
           FAILURE_ANALYZER_FILES_BASE: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/
+          FAILURE_ANALYZER_LANGSMITH_PROJECT: ${{ inputs.langsmith-project }}
           FAILURE_ANALYZER_OUTPUT_DIR: ${{ runner.temp }}/failure-analyzer/artifacts
           FAILURE_ANALYZER_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           FAILURE_ANALYZER_OPENAI_API_KEY: ${{ secrets.FAILURE_ANALYZER_OPENAI_API_KEY }}
           FAILURE_ANALYZER_ANTHROPIC_API_KEY: ${{ secrets.FAILURE_ANALYZER_ANTHROPIC_API_KEY }}
           FAILURE_ANALYZER_GOOGLE_API_KEY: ${{ secrets.FAILURE_ANALYZER_GOOGLE_API_KEY }}
           FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT: ${{ secrets.FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT }}
+          FAILURE_ANALYZER_LANGSMITH_API_KEY: ${{ secrets.FAILURE_ANALYZER_LANGSMITH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
         run: |
           args=()
           if [ -n "$FAILURE_ANALYZER_MODEL" ]; then

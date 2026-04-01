@@ -35,6 +35,7 @@ from failure_analyzer.prompting import (
     linkify_report_markdown,
 )
 from failure_analyzer.runner import run_test_command
+from failure_analyzer.tracing import configure_langsmith_tracing
 
 
 FLAGS_ENV_VAR = "FAILURE_ANALYZER_FLAGS"
@@ -67,6 +68,13 @@ async def _async_main(
 ) -> int:
     """Run the wrapped test command and invoke analysis on failures."""
     parsed_flags = parse_flags(os.environ.get(FLAGS_ENV_VAR))
+    tracing = configure_langsmith_tracing()
+    if tracing.enabled and verbose:
+        endpoint_suffix = f", endpoint: {tracing.endpoint}" if tracing.endpoint else ""
+        click.echo(
+            f"LangSmith tracing enabled (project: {tracing.project}{endpoint_suffix}).",
+            err=True,
+        )
     result = await run_test_command(command, cwd=work_dir)
     if result.exit_code == 0:
         return 0

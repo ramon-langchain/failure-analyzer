@@ -306,3 +306,41 @@ def test_cli_writes_missing_credentials_summary_in_github_actions(
     assert "## failure-analyzer setup required" in summary_text
     assert "`OPENAI_API_KEY`" in summary_text
     assert "`FAILURE_ANALYZER_OPENAI_API_KEY`" in summary_text
+
+
+def test_cli_reports_langsmith_tracing_when_enabled(monkeypatch) -> None:
+    async def fake_run_test_command(*args, **kwargs):
+        return make_result(exit_code=0)
+
+    monkeypatch.setattr("failure_analyzer.cli.run_test_command", fake_run_test_command)
+    monkeypatch.setenv("LANGSMITH_API_KEY", "trace-key")
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.delenv("LANGSMITH_PROJECT", raising=False)
+    monkeypatch.delenv("LANGCHAIN_PROJECT", raising=False)
+    monkeypatch.delenv("LANGSMITH_TRACING", raising=False)
+    monkeypatch.delenv("LANGCHAIN_TRACING_V2", raising=False)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--verbose", "go", "test", "./..."])
+
+    assert result.exit_code == 0
+    assert "LangSmith tracing enabled (project: failure-analyzer)." in result.output
+
+
+def test_cli_reports_repo_based_langsmith_project_when_in_github_actions(monkeypatch) -> None:
+    async def fake_run_test_command(*args, **kwargs):
+        return make_result(exit_code=0)
+
+    monkeypatch.setattr("failure_analyzer.cli.run_test_command", fake_run_test_command)
+    monkeypatch.setenv("LANGSMITH_API_KEY", "trace-key")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/example-repo")
+    monkeypatch.delenv("LANGSMITH_PROJECT", raising=False)
+    monkeypatch.delenv("LANGCHAIN_PROJECT", raising=False)
+    monkeypatch.delenv("LANGSMITH_TRACING", raising=False)
+    monkeypatch.delenv("LANGCHAIN_TRACING_V2", raising=False)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--verbose", "go", "test", "./..."])
+
+    assert result.exit_code == 0
+    assert "LangSmith tracing enabled (project: example-repo)." in result.output

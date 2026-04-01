@@ -6,6 +6,8 @@ Warning: experimental. Expect breaking changes, rough edges, and prompt/model be
 
 If a `.env` file is present in the current repository, it is loaded automatically before model initialization.
 
+If `LANGSMITH_API_KEY` or `FAILURE_ANALYZER_LANGSMITH_API_KEY` is present, `failure-analyzer` automatically enables LangSmith tracing for the analyzer run. In GitHub Actions, the default LangSmith project name is the base name of `GITHUB_REPOSITORY`. Outside GitHub Actions, the fallback default is `failure-analyzer`.
+
 `failure-analyzer` also borrows the main Deep Agents memory and skills conventions:
 
 - memory files, in load order:
@@ -34,6 +36,7 @@ jobs:
     with:
       command: go test -json -race -cover -timeout 10s ./...
       go-version: "1.24.13"
+      langsmith-project: my-ci-failure-analyzer
       allow-rerun: false
       instructions: |
         Focus on flaky-test evidence first.
@@ -80,6 +83,8 @@ The caller repository should define provider credentials as Actions secrets. Sup
 - `FAILURE_ANALYZER_ANTHROPIC_API_KEY`
 - `FAILURE_ANALYZER_GOOGLE_API_KEY`
 - `FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT`
+- `LANGSMITH_API_KEY`
+- `FAILURE_ANALYZER_LANGSMITH_API_KEY`
 
 If both the `FAILURE_ANALYZER_*` and standard provider names are present, `failure-analyzer` prefers the `FAILURE_ANALYZER_*` versions.
 
@@ -90,12 +95,19 @@ Optional inputs:
 - `python-version`
 - `model`
 - `instructions`
+- `langsmith-project`
 - `allow-rerun`
 - `flags`
 
 `allow-rerun` defaults to `false`. When enabled, the agent may rerun the wrapped test command or a narrowed variant if that will materially improve the diagnosis, but it is instructed to keep those reruns short and to aim to finish within about two minutes total.
 
 The reusable workflow writes the full Markdown analysis to the GitHub Actions job summary automatically and preserves the wrapped command's exit code.
+
+To enable LangSmith tracing in the reusable workflow:
+
+1. Add a repository or organization Actions secret named `LANGSMITH_API_KEY` or `FAILURE_ANALYZER_LANGSMITH_API_KEY`.
+2. Optionally set the `langsmith-project` workflow input to override the default project name. If you do not set it, `failure-analyzer` uses the base name of `GITHUB_REPOSITORY`.
+3. Re-run the workflow. Tracing turns on automatically when the key is present.
 
 When the caller workflow is running on a pull request and grants `issues: write`, `failure-analyzer` also generates a separate one-paragraph PR comment and posts it to the PR thread. That short comment links back to the full workflow run summary.
 
@@ -125,6 +137,22 @@ Persistent install:
 
 ```bash
 uv tool install --upgrade --from git+https://github.com/ramon-langchain/failure-analyzer.git failure-analyzer
+failure-analyzer go test -json -race -cover -timeout 10s ./...
+```
+
+Optional LangSmith tracing for direct CLI usage:
+
+```bash
+export LANGSMITH_API_KEY=...
+export LANGSMITH_PROJECT=my-local-failure-analysis
+failure-analyzer go test -json -race -cover -timeout 10s ./...
+```
+
+You can also use the prefixed env vars:
+
+```bash
+export FAILURE_ANALYZER_LANGSMITH_API_KEY=...
+export FAILURE_ANALYZER_LANGSMITH_PROJECT=my-local-failure-analysis
 failure-analyzer go test -json -race -cover -timeout 10s ./...
 ```
 
