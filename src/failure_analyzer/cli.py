@@ -25,6 +25,7 @@ from failure_analyzer.prompting import (
     build_missing_credentials_summary,
     build_run_context_markdown,
     has_any_provider_credentials,
+    linkify_report_markdown,
 )
 from failure_analyzer.runner import run_test_command
 
@@ -94,6 +95,7 @@ async def _async_main(
 
     run_context_markdown = ""
     if missing_credentials_summary is None:
+        report = linkify_report_markdown(report, result)
         report = append_run_context(report, result)
         run_context_markdown = build_run_context_markdown(result)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from collections.abc import Mapping
 from datetime import datetime
@@ -43,6 +44,10 @@ IMPORTANT_ENV_NAMES = (
     "FAILURE_ANALYZER_ANTHROPIC_API_KEY",
     "FAILURE_ANALYZER_GOOGLE_API_KEY",
     "FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT",
+)
+_CODE_FENCE_SPLIT_PATTERN = re.compile(r"(```.*?```)", re.DOTALL)
+_FILE_LINE_PATTERN = re.compile(
+    r"(?P<tick>`)?(?P<path>(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+|/[A-Za-z0-9._/\-]+(?:\.[A-Za-z0-9._-]+)):(?P<line>\d+)(?P=tick)?"
 )
 
 
@@ -171,6 +176,69 @@ def append_run_context(report: str, result: TestRunResult) -> str:
     if not report.strip():
         return f"{context}\n"
     return f"{report.rstrip()}\n\n{context}\n"
+
+
+def _candidate_repo_relative_path(raw_path: str, result: TestRunResult) -> str | None:
+    """Resolve a referenced file path to a repo-relative path when possible."""
+    workspace = result.environment.get("GITHUB_WORKSPACE")
+    cwd = result.cwd.resolve()
+    workspace_root = Path(workspace).resolve() if workspace else cwd
+
+    candidate = Path(raw_path)
+    candidate_paths: list[Path] = []
+    if candidate.is_absolute():
+        candidate_paths.append(candidate.resolve())
+    else:
+        candidate_paths.append((cwd / candidate).resolve())
+        candidate_paths.append((workspace_root / candidate).resolve())
+
+    seen: set[Path] = set()
+    for path in candidate_paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            relative = path.relative_to(workspace_root)
+        except ValueError:
+            continue
+        return relative.as_posix()
+    return None
+
+
+def _linkify_file_references(text: str, result: TestRunResult) -> str:
+    """Convert common file:line references into GitHub permalinks."""
+    files_base = result.environment.get("FAILURE_ANALYZER_FILES_BASE", "").strip()
+    if not files_base:
+        return text
+
+    def replace(match: re.Match[str]) -> str:
+        start = match.start()
+        if start >= 2 and text[start - 2 : start] == "](":
+            return match.group(0)
+
+        raw_path = match.group("path")
+        line = match.group("line")
+        repo_relative = _candidate_repo_relative_path(raw_path, result)
+        if repo_relative is None:
+            return match.group(0)
+
+        label = f"{repo_relative}:{line}"
+        return f"[{label}]({files_base}{repo_relative}#L{line})"
+
+    return _FILE_LINE_PATTERN.sub(replace, text)
+
+
+def linkify_report_markdown(report: str, result: TestRunResult) -> str:
+    """Upgrade plain file references in non-code sections to GitHub permalinks."""
+    if not report.strip():
+        return report
+
+    parts = _CODE_FENCE_SPLIT_PATTERN.split(report)
+    linked_parts = [
+        part if part.startswith("```") else _linkify_file_references(part, result)
+        for part in parts
+    ]
+    return "".join(linked_parts)
 
 
 def build_missing_credentials_summary(secret_names: tuple[str, ...]) -> str:

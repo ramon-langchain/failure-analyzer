@@ -86,6 +86,31 @@ def test_build_run_context_markdown_collapses_full_environment(tmp_path: Path) -
     assert "<summary>Full Environment (redacted)</summary>" in markdown
 
 
+def test_linkify_report_markdown_rewrites_file_references() -> None:
+    from failure_analyzer.prompting import linkify_report_markdown
+
+    result = make_result(
+        cwd=Path("/repo/examples/go-ci-demo"),
+        environment={
+            "FAILURE_ANALYZER_FILES_BASE": "https://github.com/example/repo/blob/abc123/",
+            "GITHUB_WORKSPACE": "/repo",
+        },
+    )
+    report = (
+        "## Evidence\n"
+        "- The failure comes from pricing/pricing.go:17 and pricing/pricing_test.go:55.\n"
+        "- Absolute path: /repo/examples/go-ci-demo/pricing/pricing.go:23.\n"
+        "```text\npricing/pricing.go:17\n```\n"
+    )
+
+    linked = linkify_report_markdown(report, result)
+
+    assert "[examples/go-ci-demo/pricing/pricing.go:17](https://github.com/example/repo/blob/abc123/examples/go-ci-demo/pricing/pricing.go#L17)" in linked
+    assert "[examples/go-ci-demo/pricing/pricing_test.go:55](https://github.com/example/repo/blob/abc123/examples/go-ci-demo/pricing/pricing_test.go#L55)" in linked
+    assert "[examples/go-ci-demo/pricing/pricing.go:23](https://github.com/example/repo/blob/abc123/examples/go-ci-demo/pricing/pricing.go#L23)" in linked
+    assert "```text\npricing/pricing.go:17\n```" in linked
+
+
 def test_resolve_model_defaults_to_gpt_5_4_mini(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(analysis.MODEL_ENV_VAR, raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
