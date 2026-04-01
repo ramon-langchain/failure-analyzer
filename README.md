@@ -6,18 +6,55 @@ Warning: experimental. Expect breaking changes, rough edges, and prompt/model be
 
 If a `.env` file is present in the current repository, it is loaded automatically before model initialization.
 
-## Usage
+## GitHub Actions
 
-Recommended one-off usage:
+Recommended usage is the reusable workflow:
 
-```bash
-uvx --from git+ssh://git@github.com/ramon-langchain/failure-analyzer.git failure-analyzer go test ./...
+```yaml
+jobs:
+  test:
+    uses: ramon-langchain/failure-analyzer/.github/workflows/analyze.yml@main
+    secrets: inherit
+    with:
+      command: go test ./...
 ```
 
-Recommended persistent install:
+Inside the reusable workflow, `failure-analyzer` is installed from the same commit as the workflow itself, so the workflow definition and tool code stay in sync.
+
+The caller repository should define provider credentials as Actions secrets. Supported secret names are:
+
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
+- `GOOGLE_API_KEY`
+- `GOOGLE_CLOUD_PROJECT`
+- `FAILURE_ANALYZER_OPENAI_API_KEY`
+- `FAILURE_ANALYZER_ANTHROPIC_API_KEY`
+- `FAILURE_ANALYZER_GOOGLE_API_KEY`
+- `FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT`
+
+If both the `FAILURE_ANALYZER_*` and standard provider names are present, `failure-analyzer` prefers the `FAILURE_ANALYZER_*` versions.
+
+Optional inputs:
+
+- `working-directory`
+- `artifact-name`
+- `python-version`
+- `model`
+
+The reusable workflow uploads the Markdown analysis as an artifact automatically and preserves the wrapped command's exit code.
+
+## Direct CLI Usage
+
+One-off usage:
 
 ```bash
-uv tool install --upgrade --from git+ssh://git@github.com/ramon-langchain/failure-analyzer.git failure-analyzer
+uvx --from git+https://github.com/ramon-langchain/failure-analyzer.git failure-analyzer go test ./...
+```
+
+Persistent install:
+
+```bash
+uv tool install --upgrade --from git+https://github.com/ramon-langchain/failure-analyzer.git failure-analyzer
 failure-analyzer go test ./...
 ```
 
@@ -25,20 +62,18 @@ The command preserves the wrapped test process exit code. On failures, it prints
 
 Use `-C /path/to/project` to run the wrapped command from a different working directory.
 
-## GitHub Actions
-
 When `failure-analyzer` detects `GITHUB_ACTIONS=true`, it will:
 
 - write the report to a stable file path automatically
 - append the report to the GitHub Actions step summary when `GITHUB_STEP_SUMMARY` is available
 - export the report path as the step output `failure_analyzer_report_path` when `GITHUB_OUTPUT` is available
 
-That lets a workflow upload the report with `actions/upload-artifact` in a follow-up step:
+The reusable workflow at [.github/workflows/analyze.yml](/Users/ramon/langchain/failure-analyzer/.github/workflows/analyze.yml) already uploads the report artifact automatically. If you prefer wiring the raw steps yourself, this still works:
 
 ```yaml
 - name: Run tests with analysis
   id: failure_analyzer
-  run: uv run failure-analyzer -C examples/go-ci-demo go test ./...
+  run: uvx --from git+https://github.com/ramon-langchain/failure-analyzer.git failure-analyzer -C . go test ./...
 
 - name: Upload analysis report
   if: always() && steps.failure_analyzer.outputs.failure_analyzer_report_path != ''

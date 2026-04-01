@@ -1,0 +1,114 @@
+name: Analyze Test Failures
+
+on:
+  workflow_call:
+    inputs:
+      command:
+        description: Command to run under failure-analyzer.
+        required: true
+        type: string
+      working-directory:
+        description: Working directory inside the caller repository.
+        required: false
+        default: .
+        type: string
+      artifact-name:
+        description: Artifact name for the uploaded failure report.
+        required: false
+        default: failure-analyzer-report
+        type: string
+      python-version:
+        description: Python version used for the tool runtime.
+        required: false
+        default: "3.14"
+        type: string
+      model:
+        description: Optional model override passed to failure-analyzer.
+        required: false
+        default: ""
+        type: string
+    secrets:
+      OPENAI_API_KEY:
+        required: false
+      ANTHROPIC_API_KEY:
+        required: false
+      GOOGLE_API_KEY:
+        required: false
+      GOOGLE_CLOUD_PROJECT:
+        required: false
+      FAILURE_ANALYZER_OPENAI_API_KEY:
+        required: false
+      FAILURE_ANALYZER_ANTHROPIC_API_KEY:
+        required: false
+      FAILURE_ANALYZER_GOOGLE_API_KEY:
+        required: false
+      FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    outputs:
+      report-path: ${{ steps.analyze.outputs.failure_analyzer_report_path }}
+      exit-code: ${{ steps.analyze.outputs.command_exit_code }}
+
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Run failure-analyzer
+        id: analyze
+        shell: bash
+        env:
+          FAILURE_ANALYZER_COMMAND: ${{ inputs.command }}
+          FAILURE_ANALYZER_MODEL: ${{ inputs.model }}
+          FAILURE_ANALYZER_OPENAI_API_KEY: ${{ secrets.FAILURE_ANALYZER_OPENAI_API_KEY }}
+          FAILURE_ANALYZER_ANTHROPIC_API_KEY: ${{ secrets.FAILURE_ANALYZER_ANTHROPIC_API_KEY }}
+          FAILURE_ANALYZER_GOOGLE_API_KEY: ${{ secrets.FAILURE_ANALYZER_GOOGLE_API_KEY }}
+          FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT: ${{ secrets.FAILURE_ANALYZER_GOOGLE_CLOUD_PROJECT }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+        run: |
+          args=()
+          if [ -n "$FAILURE_ANALYZER_MODEL" ]; then
+            args+=(--model "$FAILURE_ANALYZER_MODEL")
+          fi
+
+          set +e
+          uvx --python "${{ inputs.python-version }}" \
+            --from "git+https://github.com/ramon-langchain/failure-analyzer.git@${{ github.workflow_sha }}" \
+            failure-analyzer \
+            "${args[@]}" \
+            -C "${{ inputs.working-directory }}" \
+            -- \
+            bash -lc "$FAILURE_ANALYZER_COMMAND"
+          status=$?
+          echo "command_exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload failure report
+        if: always() && steps.analyze.outputs.failure_analyzer_report_path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ steps.analyze.outputs.failure_analyzer_report_path }}
+          if-no-files-found: error
+
+      - name: Preserve test exit code
+        if: always()
+        shell: bash
+        run: |
+          exit "${{ steps.analyze.outputs.command_exit_code }}"
